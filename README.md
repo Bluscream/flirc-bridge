@@ -132,10 +132,16 @@ docker run --rm \
 ### Using docker compose
 
 ```bash
+# copy sample env if needed
+cp docker/.env.example docker/.env
+
+# adjust values inside docker/.env (MQTT, paths, etc.)
+
+# start using docker hub image
 docker compose -f docker/docker-compose.yml up -d
 ```
 
-The compose file mounts `../patterns.db` relative to the compose directory. Adjust paths if you store the database elsewhere.
+The compose file pulls `bluscream1/flirc-bridge:latest` and mounts `../patterns.db` relative to the compose directory. Adjust paths if you store the database elsewhere.
 
 Mount additional devices (e.g., `--device /dev/input/...`) if required by `irtools`.
 
