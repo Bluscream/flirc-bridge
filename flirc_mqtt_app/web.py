@@ -70,6 +70,14 @@ def create_app(settings_override=None) -> FastAPI:
         try:
             mqtt_manager = MQTTManager(settings=settings, irtools=irtools)
             mqtt_manager.start()
+            with get_session() as session:
+                devices = session.query(Device).all()
+                published = 0
+                for device in devices:
+                    for action in device.actions:
+                        mqtt_manager.refresh_action(device, action)
+                        published += 1
+                logger.info("Republished MQTT discovery for %s actions", published)
         except Exception as exc:  # pragma: no cover - defensive
             logger.warning("MQTT disabled due to startup error: %s", exc)
             mqtt_manager = None
@@ -105,6 +113,11 @@ def create_app(settings_override=None) -> FastAPI:
     @app.on_event("shutdown")
     def shutdown_event():
         if mqtt_manager:
+            with get_session() as session:
+                devices = session.query(Device).all()
+                for device in devices:
+                    for action in device.actions:
+                        mqtt_manager.clear_discovery(device, action)
             mqtt_manager.stop()
 
     # ----------------------------------------------------------- web interface

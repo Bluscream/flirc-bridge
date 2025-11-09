@@ -53,7 +53,7 @@ if (-not $env:PYO3_USE_ABI3_FORWARD_COMPATIBILITY) {
 }
 
 Write-Host "==> Ensuring Python dependencies are installed" -ForegroundColor Cyan
-pip install -r ".\requirements.txt" | Out-Host
+python -m pip install -r ".\requirements.txt" | Out-Host
 
 # Check and install Flirc tools if needed
 Write-Host "==> Checking for Flirc tools..." -ForegroundColor Cyan

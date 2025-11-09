@@ -40,8 +40,7 @@ def pattern_record_to_db(
             )
             .one()
         )
-        for pattern in action.patterns:
-            mqtt.publish_discovery(device, action, pattern)
+        mqtt.refresh_action(device, action)
 
 
 def delete_pattern(
