@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <title>Flirc Bridge</title>
+  <link rel="stylesheet" href="/static/app.css" />
+</head>
+
+<body data-requires-token="{{ 'true' if requires_token else 'false' }}">
+  <header class="site-header">
+    <h1>Flirc Bridge</h1>
+    {% if not mqtt_available %}
+    <p class="alert alert-warning">
+      MQTT bridge is disabled or unavailable. REST API and web UI remain operational.
+    </p>
+    {% endif %}
+    <p>MQTT client: {{ settings.mqtt_client_id }} @ {{ settings.mqtt_broker }}:{{ settings.mqtt_port }}</p>
+  </header>
+  <main>
+    <section>
+      <h2>Stored Patterns</h2>
+      {% if not patterns %}
+      <p class="empty-state">No patterns saved yet.</p>
+      {% else %}
+      {% for device, actions in patterns.items() %}
+      <div class="device-card">
+        <div class="device-card__header">
+          <h3 class="device-card__title">Device: {{ device }}</h3>
+          <button class="btn btn-danger" onclick="deleteDevice('{{ device }}')">Delete Device</button>
+        </div>
+        {% if not actions %}
+        <p class="device-card__empty">No actions stored.</p>
+        {% else %}
+        <div class="device-card__body">
+          {% for action, formats in actions.items() %}
+          <div class="action-card">
+            <div class="action-card__header">
+              <div class="action-card__title"><strong>Action:</strong> {{ action }}</div>
+              <div class="action-card__buttons">
+                <button class="btn" onclick="sendPattern('{{ device }}', '{{ action }}')">Send</button>
+                <button class="btn btn-secondary" onclick="editPattern('{{ device }}', '{{ action }}')">Edit</button>
+                <button class="btn btn-danger" onclick="deleteAction('{{ device }}', '{{ action }}')">Delete</button>
+              </div>
+            </div>
+            <div class="formats-grid">
+              {% for fmt, payload in formats.items() %}
+              {% set payload_data = payload.data if payload is mapping else payload %}
+              {% set payload_hash = payload.hash if payload is mapping else None %}
+              <div class="format-card">
+                <div class="format-card__header">
+                  <span class="format-card__title"><strong>{{ fmt }}</strong></span>
+                  {% if payload_hash %}<code class="format-card__hash">{{ payload_hash }}</code>{% endif %}
+                </div>
+                <pre class="format-card__data">{{ payload_data }}</pre>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
+      </div>
+      {% endfor %}
+      {% endif %}
+    </section>
+    <section>
+      <h2>Add or Update Pattern</h2>
+      {% if requires_token %}
+      <p class="notice">An access token is required to add, edit, or delete patterns. You will be prompted when needed.</p>
+      {% endif %}
+      <form id="pattern-form" method="post" action="/api/patterns" enctype="application/json">
+        <label for="device">Device</label>
+        <input id="device" name="device" placeholder="e.g. Compact Space Heater" required />
+
+        <label for="action">Action</label>
+        <input id="action" name="action" placeholder="e.g. Toggle" required />
+
+        <label for="formats">Formats JSON</label>
+        <textarea id="formats" name="formats" rows="6" placeholder='[{"format": "raw", "data": ["+9000 -4500 ..."]}]' required></textarea>
+
+        <button type="submit" class="btn">Save Pattern</button>
+      </form>
+    </section>
+  </main>
+  <script id="app-context" type="application/json">
+    {{ {"patterns": patterns, "requiresToken": requires_token}|tojson }}
+  </script>
+  <script src="/static/app.js"></script>
+</body>
+
+</html>

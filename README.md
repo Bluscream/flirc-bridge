@@ -1,6 +1,6 @@
-# Flirc MQTT Bridge
+# Flirc Bridge
 
-This project recreates the functionality of the `breeily/flirc_mqtt` container and expands it with:
+This project recreates the functionality of the `breeily/flirc_bridge` container and expands it with:
 
 - A FastAPI web server to manage IR patterns (create, update, delete).
 - A SQLite database for persisting patterns in a structure compatible with `patterns.json`.
@@ -10,8 +10,9 @@ This project recreates the functionality of the `breeily/flirc_mqtt` container a
 
 ## Features
 
-- **Pattern management UI** – visit `/` to view and manage stored patterns.
+- **Pattern management UI** – visit `/` to view and manage stored patterns (grouped by device/action, with Send/Edit/Delete controls).
 - **REST API**:
+  - `GET /api/status` – runtime status, tool versions, and configuration summary.
   - `GET /api/patterns.json` – export all patterns in the original JSON structure.
   - `POST /api/patterns` – add or update patterns.
   - `PUT /api/patterns/{device}/{action}` – replace an existing pattern.
@@ -19,8 +20,8 @@ This project recreates the functionality of the `breeily/flirc_mqtt` container a
   - `POST /api/send` – transmit a stored or custom pattern via `irtools`.
   - `POST /api/receive` – capture a pattern using `irtools listen` (optionally save it).
 - **MQTT integration** – publishes Home Assistant discovery buttons for every stored pattern and listens for commands on:
-  - `flirc_mqtt/commands/<device_action_format>` – triggers stored patterns.
-  - `flirc_mqtt/send` – accepts custom payloads (`{"format": "...", "data": [...]}`).
+  - `flirc_bridge/commands/<device_action_format>` – triggers stored patterns.
+  - `flirc_bridge/send` – accepts custom payloads (`{"format": "...", "data": [...]}`).
 
 ## Prerequisites
 
@@ -35,29 +36,34 @@ This project recreates the functionality of the `breeily/flirc_mqtt` container a
 
 Environment variables (defaults shown):
 
-| Variable                | Default             | Description                        |
-| ----------------------- | ------------------- | ---------------------------------- |
-| `FLIRC_DB_PATH`         | `flirc_patterns.db` | SQLite database location           |
-| `IRTOOLS_PATH`          | `irtools`           | Executable used for IR send/listen |
-| `MQTT_BROKER`           | `localhost`         | MQTT broker address                |
-| `MQTT_PORT`             | `1883`              | MQTT broker port                   |
-| `MQTT_USERNAME`         | _(unset)_           | MQTT username                      |
-| `MQTT_PASSWORD`         | _(unset)_           | MQTT password                      |
-| `MQTT_CLIENT_ID`        | `flirc-mqtt`        | MQTT client identifier             |
-| `MQTT_BASE_TOPIC`       | `flirc_mqtt`        | Base MQTT topic                    |
-| `MQTT_DISCOVERY_PREFIX` | `homeassistant`     | Discovery prefix                   |
-| `MQTT_RETAIN`           | `true`              | Retain discovery messages          |
-| `WEB_HOST`              | `0.0.0.0`           | Web server bind address            |
-| `WEB_PORT`              | `8000`              | Web server port                    |
-| `WEB_RELOAD`            | `false`             | Enable auto-reload (development)   |
-| `IR_LISTEN_TIMEOUT`     | `10`                | Default listen timeout             |
+| Variable                | Default         | Description                                  |
+| ----------------------- | --------------- | -------------------------------------------- |
+| `DB_PATH`               | `patterns.db`   | SQLite database location                     |
+| `IRTOOLS_PATH`          | `irtools`       | Executable used for IR send/listen           |
+| `MQTT_BROKER`           | `localhost`     | MQTT broker address                          |
+| `MQTT_PORT`             | `1883`          | MQTT broker port                             |
+| `MQTT_USERNAME`         | `homeassistant` | MQTT username                                |
+| `MQTT_PASSWORD`         | _(unset)_       | MQTT password                                |
+| `MQTT_CLIENT_ID`        | `flirc-bridge`  | MQTT client identifier                       |
+| `MQTT_BASE_TOPIC`       | `flirc_bridge`  | Base MQTT topic                              |
+| `MQTT_DISCOVERY_PREFIX` | `homeassistant` | Discovery prefix                             |
+| `MQTT_RETAIN`           | `true`          | Retain discovery messages                    |
+| `MQTT_ENABLED`          | `true`          | Disable to run web UI without MQTT           |
+| `AUTO_STORE_PATTERNS`   | `false`         | Automatically persist received patterns      |
+| `WEB_TOKEN`             | _(unset)_       | If set, required for add/edit/delete actions |
+| `WEB_HOST`              | `0.0.0.0`       | Web server bind address                      |
+| `WEB_PORT`              | `8000`          | Web server port                              |
+| `WEB_RELOAD`            | `false`         | Enable auto-reload (development)             |
+| `IR_LISTEN_TIMEOUT`     | `10`            | Default listen timeout                       |
+
+Set `MQTT_ENABLED=false` if you only want the REST/web components (for example when an MQTT broker is not available yet).
 
 ## Running locally
 
 ### Windows (PowerShell)
 
 ```powershell
-cd flirc-mqtt
+cd flirc-bridge
 
 # Create .env file with your MQTT credentials
 @"
@@ -75,6 +81,7 @@ MQTT_PASSWORD=super_secret
 ```
 
 The `start.ps1` script will:
+
 - Auto-install Flirc tools if missing (downloads and runs `Flirc-Setup-3.27.19.exe` silently)
 - Create/activate `.venv`
 - Install Python dependencies
@@ -83,7 +90,7 @@ The `start.ps1` script will:
 ### Linux
 
 ```bash
-cd flirc-mqtt
+cd flirc-bridge
 
 # Install Flirc tools (if not already installed)
 sudo ./install_flirc_tools.sh
@@ -100,25 +107,41 @@ EOF
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-python run_flirc_mqtt.py
+python run_flirc_bridge.py
 ```
 
 Visit `http://localhost:8000` for the management interface.
 
 ## Docker
 
+### Build manually
+
 ```bash
-docker build -t bluscream/flirc-mqtt .
+docker build -f docker/Dockerfile -t bluscream/flirc-bridge .
 docker run --rm \
   -e MQTT_BROKER=192.168.1.10 \
   -e MQTT_USERNAME=homeassistant \
   -e MQTT_PASSWORD=secret \
-  -v $(pwd)/flirc_patterns.db:/app/flirc_patterns.db \
+  -e MQTT_ENABLED=true \
+  -v $(pwd)/patterns.db:/data/patterns.db \
+  --device /dev/bus/usb:/dev/bus/usb \
   -p 8000:8000 \
-  bluscream/flirc-mqtt
+  bluscream/flirc-bridge
 ```
 
+### Using docker compose
+
+```bash
+docker compose -f docker/docker-compose.yml up -d
+```
+
+The compose file mounts `../patterns.db` relative to the compose directory. Adjust paths if you store the database elsewhere.
+
 Mount additional devices (e.g., `--device /dev/input/...`) if required by `irtools`.
+
+### Unraid
+
+Import `unraid/template.xml` into your Unraid templates directory to expose the container in the UI.
 
 ## REST examples
 
@@ -168,7 +191,7 @@ This will listen with `irtools`, store the result in SQLite, and immediately exp
 
 ## MQTT custom payload
 
-Publish to `flirc_mqtt/send`:
+Publish to `flirc_bridge/send`:
 
 ```json
 {
@@ -183,4 +206,7 @@ Publish to `flirc_mqtt/send`:
 
 - Home Assistant discovery topics are retained so buttons reappear after restart.
 - When patterns are deleted, their discovery topics are cleared.
+- Enable `AUTO_STORE_PATTERNS=true` to automatically save newly received patterns (unless already present by matching hash).
+- Set `WEB_TOKEN` to require an access token for add/edit/delete operations via the UI or REST API.
+- Each stored pattern keeps a SHA-256 hash alongside the payload so duplicates can be detected quickly.
 - The project currently assumes `irtools` supports `send --format ... --data ...` and `listen --format ...`. Adjust the command flags in `flirc_mqtt_app/irtools.py` if your version differs.

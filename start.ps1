@@ -7,9 +7,13 @@ $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $PSCommandPath
 Set-Location $scriptDir
 
-Write-Host "==> Stopping flirc-mqtt bridge if running" -ForegroundColor Cyan
-Stop-Process -Name "flirc-mqtt" -ErrorAction SilentlyContinue
-Stop-Process -Name "python" -ErrorAction SilentlyContinue
+Write-Host "==> Stopping flirc-bridge service if running" -ForegroundColor Cyan
+try {
+    Get-Process -Name python -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    Get-Process -Name pwsh -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*flirc-bridge*start.ps1*' } | Stop-Process -Force -ErrorAction SilentlyContinue
+} catch {
+    Write-Verbose $_
+}
 
 if ($Detached -and -not $Internal) {
     $argsList = @(
@@ -19,11 +23,11 @@ if ($Detached -and -not $Internal) {
         "-Internal"
     )
     $proc = Start-Process "pwsh" -ArgumentList $argsList -WindowStyle Hidden -PassThru
-    Write-Host "Started flirc-mqtt bridge in detached mode (process forked)." -ForegroundColor Green
+    Write-Host "Started flirc-bridge service in detached mode (process forked)." -ForegroundColor Green
     Write-Host ("Process Id: {0}" -f $proc.Id)
     Write-Host ("Process Name: {0}" -f $proc.ProcessName)
     Write-Host ("Start Time: {0}" -f $proc.StartTime)
-    Write-Host ("Full details:" ) 
+    Write-Host ("Full details:" )
     $proc | Format-List * | Out-String | Write-Host
     exit
 }
@@ -77,7 +81,7 @@ function Test-Executable($exeName, $arg = "version") {
 }
 
 Test-Executable "irtools"
-Test-Executable "flirc_util.exe"
+Test-Executable "flirc_util"
 
-Write-Host "==> Launching flirc-mqtt bridge (Ctrl+C to stop)" -ForegroundColor Cyan
-python ".\run_flirc_mqtt.py"
+Write-Host "==> Launching flirc-bridge service (Ctrl+C to stop)" -ForegroundColor Cyan
+python ".\run_flirc_bridge.py"

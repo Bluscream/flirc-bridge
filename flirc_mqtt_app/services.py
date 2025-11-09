@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from typing import Dict, List
 
@@ -18,12 +19,14 @@ def pattern_record_to_db(
     stored_formats: Dict[str, str] = {}
     for fmt in record.formats:
         json_payload = json.dumps(fmt.data)
+        data_hash = hashlib.sha256(json_payload.encode("utf-8")).hexdigest()
         database.upsert_pattern(
             session=session,
             device_name=record.device,
             action_name=record.action,
             format_name=fmt.format,
             data=json_payload,
+            data_hash=data_hash,
         )
         stored_formats[fmt.format] = json_payload
 
@@ -62,9 +65,15 @@ def delete_pattern(
 def export_patterns(session: Session) -> Dict[str, Dict[str, Dict[str, List[str]]]]:
     export: Dict[str, Dict[str, Dict[str, List[str]]]] = {}
     for device, action, pattern in database.iter_patterns(session):
-        export.setdefault(device.name, {}).setdefault(action.name, {})[pattern.format] = json.loads(
-            pattern.data
-        )
+        pattern_hash = pattern.hash
+        if not pattern_hash:
+            pattern_hash = hashlib.sha256(pattern.data.encode("utf-8")).hexdigest()
+            pattern.hash = pattern_hash
+            session.flush()
+        export.setdefault(device.name, {}).setdefault(action.name, {})[pattern.format] = {
+            "data": json.loads(pattern.data),
+            "hash": pattern_hash,
+        }
     return export
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from contextlib import contextmanager
 from datetime import datetime
 from typing import Generator, Iterable
@@ -62,6 +63,7 @@ class Pattern(Base):
     action_id = Column(Integer, ForeignKey("actions.id", ondelete="CASCADE"), nullable=False)
     format = Column(String(32), nullable=False)
     data = Column(Text, nullable=False)
+    hash = Column(String(64), nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow, server_default=func.now())
     updated_at = Column(
         DateTime,
@@ -105,6 +107,7 @@ def upsert_pattern(
     action_name: str,
     format_name: str,
     data: str,
+    data_hash: str,
 ) -> Pattern:
     device = session.query(Device).filter(Device.name == device_name).one_or_none()
     if device is None:
@@ -128,10 +131,11 @@ def upsert_pattern(
         .one_or_none()
     )
     if pattern is None:
-        pattern = Pattern(action_id=action.id, format=format_name, data=data)
+        pattern = Pattern(action_id=action.id, format=format_name, data=data, hash=data_hash)
         session.add(pattern)
     else:
         pattern.data = data
+        pattern.hash = data_hash
     session.flush()
     return pattern
 

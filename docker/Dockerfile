@@ -28,4 +28,5 @@ COPY . .
 
 EXPOSE 8000
 
-CMD ["python", "run_flirc_mqtt.py"]
+CMD ["python", "run_flirc_bridge.py"]
+

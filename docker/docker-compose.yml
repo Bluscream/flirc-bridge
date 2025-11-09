@@ -1,0 +1,29 @@
+version: "3.9"
+services:
+  flirc-bridge:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: flirc-bridge
+    restart: unless-stopped
+    environment:
+      - MQTT_BROKER=${MQTT_BROKER:-localhost}
+      - MQTT_PORT=${MQTT_PORT:-1883}
+      - MQTT_USERNAME=${MQTT_USERNAME:-homeassistant}
+      - MQTT_PASSWORD=${MQTT_PASSWORD:-}
+      - MQTT_CLIENT_ID=${MQTT_CLIENT_ID:-flirc-bridge}
+      - MQTT_BASE_TOPIC=${MQTT_BASE_TOPIC:-flirc_bridge}
+      - MQTT_DISCOVERY_PREFIX=${MQTT_DISCOVERY_PREFIX:-homeassistant}
+      - MQTT_RETAIN=${MQTT_RETAIN:-true}
+      - MQTT_ENABLED=${MQTT_ENABLED:-true}
+      - AUTO_STORE_PATTERNS=${AUTO_STORE_PATTERNS:-false}
+      - WEB_TOKEN=${WEB_TOKEN:-}
+      - WEB_HOST=${WEB_HOST:-0.0.0.0}
+      - WEB_PORT=${WEB_PORT:-8000}
+      - DB_PATH=/data/patterns.db
+    ports:
+      - "${WEB_PORT:-8000}:8000"
+    volumes:
+      - ../patterns.db:/data/patterns.db
+    devices:
+      - /dev/bus/usb:/dev/bus/usb

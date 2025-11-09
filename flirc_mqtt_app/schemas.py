@@ -13,6 +13,10 @@ class PatternFormatModel(BaseModel):
         default_factory=list,
         description="List of pattern values, stored as strings for portability",
     )
+    hash: Optional[str] = Field(
+        default=None,
+        description="SHA-256 hash of the pattern payload",
+    )
 
     @field_validator("data", mode="before")
     def _ensure_strings(cls, value: Any) -> List[str]:

@@ -1,0 +1,103 @@
+<?xml version="1.0"?>
+<Container>
+  <Name>flirc-bridge</Name>
+  <Repository>ghcr.io/bluscream/flirc-bridge:latest</Repository>
+  <Registry>https://github.com/Bluscream/flirc-bridge</Registry>
+  <Network>bridge</Network>
+  <Shell>/bin/bash</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/Bluscream/flirc-bridge/issues</Support>
+  <Overview>
+    Flirc Bridge exposes a FastAPI web UI and REST API for managing IR patterns, and bridges saved patterns to MQTT for Home Assistant discovery. The container automatically installs/updates Flirc tools on startup.
+  </Overview>
+  <Environment>
+    <Variable>
+      <Name>MQTT_BROKER</Name>
+      <Value>localhost</Value>
+      <Description>MQTT broker host</Description>
+    </Variable>
+    <Variable>
+      <Name>MQTT_PORT</Name>
+      <Value>1883</Value>
+      <Description>MQTT broker port</Description>
+    </Variable>
+    <Variable>
+      <Name>MQTT_USERNAME</Name>
+      <Value>homeassistant</Value>
+      <Description>MQTT username (optional)</Description>
+    </Variable>
+    <Variable>
+      <Name>MQTT_PASSWORD</Name>
+      <Value></Value>
+      <Description>MQTT password (optional)</Description>
+    </Variable>
+    <Variable>
+      <Name>MQTT_CLIENT_ID</Name>
+      <Value>flirc-bridge</Value>
+      <Description>MQTT client identifier</Description>
+    </Variable>
+    <Variable>
+      <Name>MQTT_BASE_TOPIC</Name>
+      <Value>flirc_bridge</Value>
+      <Description>Base topic for MQTT commands</Description>
+    </Variable>
+    <Variable>
+      <Name>MQTT_DISCOVERY_PREFIX</Name>
+      <Value>homeassistant</Value>
+      <Description>Home Assistant discovery prefix</Description>
+    </Variable>
+    <Variable>
+      <Name>MQTT_RETAIN</Name>
+      <Value>true</Value>
+      <Description>Retain discovery messages</Description>
+    </Variable>
+    <Variable>
+      <Name>MQTT_ENABLED</Name>
+      <Value>true</Value>
+      <Description>Set to false to disable MQTT bridge</Description>
+    </Variable>
+    <Variable>
+      <Name>WEB_TOKEN</Name>
+      <Value></Value>
+      <Description>Optional access token required for modifications</Description>
+    </Variable>
+    <Variable>
+      <Name>AUTO_STORE_PATTERNS</Name>
+      <Value>false</Value>
+      <Description>Automatically store received patterns when unique</Description>
+    </Variable>
+    <Variable>
+      <Name>WEB_PORT</Name>
+      <Value>8000</Value>
+      <Description>Internal web port</Description>
+    </Variable>
+    <Variable>
+      <Name>WEB_HOST</Name>
+      <Value>0.0.0.0</Value>
+      <Description>Bind address inside the container</Description>
+    </Variable>
+    <Variable>
+      <Name>DB_PATH</Name>
+      <Value>/data/patterns.db</Value>
+      <Description>SQLite database path inside the container</Description>
+    </Variable>
+  </Environment>
+  <Data>
+    <Volume>
+      <HostDir>/mnt/user/appdata/flirc-bridge/patterns.db</HostDir>
+      <ContainerDir>/data/patterns.db</ContainerDir>
+      <Mode>rw</Mode>
+      <Description>Persistent SQLite database</Description>
+    </Volume>
+  </Data>
+  <Port>
+    <HostPort>8000</HostPort>
+    <ContainerPort>8000</ContainerPort>
+    <Protocol>tcp</Protocol>
+    <Description>Web UI and API</Description>
+  </Port>
+  <Device>
+    <Host>/dev/bus/usb</Host>
+    <Container>/dev/bus/usb</Container>
+  </Device>
+</Container>

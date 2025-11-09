@@ -1,4 +1,4 @@
-# Import patterns.json into flirc-mqtt service
+# Import patterns.json into flirc-bridge service
 param(
     [string]$PatternsFile = "..\patterns.json",
     [string]$ApiUrl = "http://127.0.0.1:8000/api/ingest"
@@ -44,3 +44,5 @@ catch {
 }
 
 exit 0
+
+
