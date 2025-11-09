@@ -5,6 +5,7 @@ ENV PYTHONUNBUFFERED=1 \
 
 # Install dependencies for Flirc tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
     curl \
     ca-certificates \
     udev \
@@ -29,4 +30,3 @@ COPY . .
 EXPOSE 8000
 
 CMD ["python", "run_flirc_bridge.py"]
-
