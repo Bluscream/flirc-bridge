@@ -4,11 +4,12 @@ import json
 import os
 import re
 import shutil
+import subprocess
+import threading
 from typing import Iterable, List, Optional
 
 from .config import get_settings
 from .tool_base import FlircTool, ToolError
-
 
 class IRToolsError(ToolError):
     """Raised when invoking irtools fails."""
@@ -59,14 +60,19 @@ class IRTools(FlircTool):
     ) -> None:
         settings = get_settings()
         candidate = executable or settings.irtools_path
-        resolved = shutil.which(candidate)
+        resolved = shutil.which(candidate) if candidate else None
+
+        if not resolved:
+            self.ensure_flirc_tools_installed("flirc_mqtt_app.irtools")
+            resolved = shutil.which(candidate) if candidate else None
+
         if not resolved:
             fallback = settings.flirc_util_path
             fallback_resolved = shutil.which(fallback)
-            if fallback_resolved:
-                candidate = fallback_resolved
-            else:
-                candidate = fallback
+            if not fallback_resolved:
+                self.ensure_flirc_tools_installed("flirc_mqtt_app.irtools")
+                fallback_resolved = shutil.which(fallback)
+            candidate = fallback_resolved or fallback
         else:
             candidate = resolved
         super().__init__(candidate)
@@ -139,7 +145,12 @@ class IRTools(FlircTool):
             try:
                 result = self.run("--version")
             except ToolError:
-                raise primary_error
+                message = (
+                    (primary_error.stderr if primary_error else None)
+                    or (primary_error.stdout if primary_error else None)
+                    or str(primary_error)
+                )
+                return message or "unknown"
         output = (result.stdout or "").strip()
         if not output and result.stderr:
             output = result.stderr.strip()

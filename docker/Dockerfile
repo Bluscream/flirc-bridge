@@ -4,6 +4,7 @@ ARG DEBIAN_FRONTEND=noninteractive
 
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
+    PIP_ROOT_USER_ACTION=ignore \
     IRTOOLS_PATH=/usr/local/bin/irtools \
     FLIRC_UTIL_PATH=/usr/local/bin/flirc_util
 

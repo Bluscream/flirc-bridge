@@ -10,6 +10,42 @@ if (contextScript && contextScript.textContent) {
 const patternsData = appContext.patterns || {};
 const requiresToken = Boolean(appContext.requiresToken);
 let authToken = requiresToken ? window.localStorage.getItem("webToken") : null;
+const alertsRoot = document.getElementById("alerts-root");
+
+function showToast(message, variant = "info", delay = 4000) {
+  if (!alertsRoot || typeof bootstrap === "undefined" || !bootstrap.Toast) {
+    window.alert(message);
+    return;
+  }
+
+  const toastElement = document.createElement("div");
+  toastElement.className = `toast align-items-center text-bg-${variant} border-0 shadow`;
+  toastElement.setAttribute("role", "alert");
+  toastElement.setAttribute("aria-live", "assertive");
+  toastElement.setAttribute("aria-atomic", "true");
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "d-flex";
+
+  const body = document.createElement("div");
+  body.className = "toast-body";
+  body.textContent = message;
+
+  const closeButton = document.createElement("button");
+  closeButton.type = "button";
+  closeButton.className = "btn-close btn-close-white me-2 m-auto";
+  closeButton.setAttribute("data-bs-dismiss", "toast");
+  closeButton.setAttribute("aria-label", "Close");
+
+  wrapper.appendChild(body);
+  wrapper.appendChild(closeButton);
+  toastElement.appendChild(wrapper);
+  alertsRoot.appendChild(toastElement);
+
+  const toast = new bootstrap.Toast(toastElement, { delay });
+  toastElement.addEventListener("hidden.bs.toast", () => toastElement.remove());
+  toast.show();
+}
 
 function ensureAuthToken() {
   if (!requiresToken) {
@@ -20,7 +56,7 @@ function ensureAuthToken() {
   }
   const input = prompt("Enter access token");
   if (!input) {
-    alert("This action requires an access token.");
+    showToast("This action requires an access token.", "warning");
     return null;
   }
   authToken = input.trim();
@@ -48,7 +84,7 @@ async function handleAuthResponse(response) {
     window.localStorage.removeItem("webToken");
     authToken = null;
     const data = await response.json().catch(() => ({}));
-    alert("Authentication failed: " + (data.detail || response.statusText));
+    showToast("Authentication failed: " + (data.detail || response.statusText), "danger", 5000);
     return false;
   }
   return true;
@@ -63,7 +99,7 @@ async function submitPattern(event) {
   try {
     formats = JSON.parse(formatsRaw);
   } catch (error) {
-    alert("Formats must be valid JSON");
+    showToast("Formats must be valid JSON.", "warning");
     return false;
   }
   let headers = buildHeaders({ "Content-Type": "application/json" });
@@ -82,7 +118,7 @@ async function submitPattern(event) {
       return false;
     }
     const data = await response.json().catch(() => ({}));
-    alert("Failed to save pattern: " + (data.detail || response.statusText));
+    showToast("Failed to save pattern: " + (data.detail || response.statusText), "danger", 5000);
   } else {
     window.location.reload();
   }
@@ -97,7 +133,7 @@ async function sendPattern(device, action) {
   });
   if (!response.ok) {
     const data = await response.json().catch(() => ({}));
-    alert("Failed to send pattern: " + (data.detail || response.statusText));
+    showToast("Failed to send pattern: " + (data.detail || response.statusText), "danger", 5000);
   }
 }
 
@@ -148,7 +184,7 @@ async function deleteAction(device, action) {
       return;
     }
     const data = await response.json().catch(() => ({}));
-    alert("Failed to delete pattern: " + (data.detail || response.statusText));
+      showToast("Failed to delete pattern: " + (data.detail || response.statusText), "danger", 5000);
   } else {
     window.location.reload();
   }
@@ -179,10 +215,11 @@ async function deleteDevice(device) {
         return;
       }
       const data = await response.json().catch(() => ({}));
-      alert(
-        `Failed to delete ${device}/${action}: ` +
-          (data.detail || response.statusText)
-      );
+    showToast(
+      `Failed to delete ${device}/${action}: ${data.detail || response.statusText}`,
+      "danger",
+      5000
+    );
       return;
     }
   }
