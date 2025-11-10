@@ -27,37 +27,23 @@
       <div class="device-card">
         <div class="device-card__header">
           <h3 class="device-card__title">Device: {{ device }}</h3>
-          <button class="btn btn-danger" onclick="deleteDevice('{{ device }}')">Delete Device</button>
+          <button class="btn btn-danger" onclick="deleteDevice({{ device|tojson }})">Delete Device</button>
         </div>
         {% if not actions %}
         <p class="device-card__empty">No actions stored.</p>
         {% else %}
         <div class="device-card__body">
-          {% for action, formats in actions.items() %}
-          <div class="action-card">
-            <div class="action-card__header">
-              <div class="action-card__title"><strong>Action:</strong> {{ action }}</div>
-              <div class="action-card__buttons">
-                <button class="btn" onclick="sendPattern('{{ device }}', '{{ action }}')">Send</button>
-                <button class="btn btn-secondary" onclick="editPattern('{{ device }}', '{{ action }}')">Edit</button>
-                <button class="btn btn-danger" onclick="deleteAction('{{ device }}', '{{ action }}')">Delete</button>
+          <div class="device-card__actions">
+            {% for action in actions.keys() %}
+            <div class="device-action">
+              <div class="device-action__label">{{ action }}</div>
+              <div class="device-action__buttons">
+                <button class="btn" onclick="sendPattern({{ device|tojson }}, {{ action|tojson }})">Send</button>
+                <button class="btn btn-secondary" onclick="editPattern({{ device|tojson }}, {{ action|tojson }})">Edit</button>
               </div>
             </div>
-            <div class="formats-grid">
-              {% for fmt, payload in formats.items() %}
-              {% set payload_data = payload.data if payload is mapping else payload %}
-              {% set payload_hash = payload.hash if payload is mapping else None %}
-              <div class="format-card">
-                <div class="format-card__header">
-                  <span class="format-card__title"><strong>{{ fmt }}</strong></span>
-                  {% if payload_hash %}<code class="format-card__hash">{{ payload_hash }}</code>{% endif %}
-                </div>
-                <pre class="format-card__data">{{ payload_data }}</pre>
-              </div>
-              {% endfor %}
-            </div>
+            {% endfor %}
           </div>
-          {% endfor %}
         </div>
         {% endif %}
       </div>
