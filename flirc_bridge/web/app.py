@@ -116,6 +116,14 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
                 raise HTTPException(status_code=404, detail="Stored pattern not found")
             payload = pattern.data or "[]"
             fmt = pattern.format
+            pattern_hash = pattern.hash
+        logger.info(
+            "Loaded stored pattern device=%s action=%s format=%s hash=%s",
+            device,
+            action,
+            fmt,
+            pattern_hash,
+        )
         try:
             data = json.loads(payload)
         except json.JSONDecodeError as exc:
@@ -129,13 +137,49 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
         repeat: Optional[int],
         irtools: IRTools,
         flirc: FlircUtil,
+        *,
+        device: Optional[str] = None,
+        action: Optional[str] = None,
+        source: str = "/api/send",
     ) -> Dict[str, Any]:
+        data_repr = data if data is None else json.dumps(data)
+        if device and action:
+            logger.info(
+                "[%s] Dispatching stored pattern device=%s action=%s format=%s carrier=%s repeat=%s data=%s",
+                source,
+                device,
+                action,
+                fmt,
+                carrier,
+                repeat,
+                data_repr,
+            )
+        else:
+            logger.info(
+                "[%s] Dispatching custom pattern format=%s carrier=%s repeat=%s data=%s",
+                source,
+                fmt,
+                carrier,
+                repeat,
+                data_repr,
+            )
         try:
             stdout = irtools.send(fmt, data, carrier=carrier, repeat=repeat)  # type: ignore[arg-type]
+            logger.info(
+                "[%s] IRTools send successful: %s",
+                source,
+                stdout.strip() if isinstance(stdout, str) else stdout,
+            )
             return {"status": "sent", "output": stdout}
         except IRToolsError as primary_exc:
             try:
                 fallback_output = flirc.send_ir(data or [])
+                logger.warning(
+                    "[%s] IRTools failed (%s); falling back to flirc_util. Output=%s",
+                    source,
+                    primary_exc,
+                    fallback_output,
+                )
                 return {"status": "sent", "output": fallback_output, "fallback": "flirc_util"}
             except FlircUtilError as secondary_exc:
                 raise HTTPException(status_code=500, detail=f"IRTools failed: {primary_exc}; flirc_util failed: {secondary_exc}")

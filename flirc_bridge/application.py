@@ -19,10 +19,10 @@ logger = logging.getLogger(__name__)
 def scrub_dict(data: Dict[str, Any], values_to_remove: List[Any]) -> Dict[str, Any]:
     """Recursively remove keys whose values match any item in values_to_remove."""
 
+    banned_values = [item for item in values_to_remove if item]
+
     def _should_remove(value: Any) -> bool:
-        for banned in values_to_remove:
-            if banned is None:
-                continue
+        for banned in banned_values:
             if value == banned:
                 return True
         return False
