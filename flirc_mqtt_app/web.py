@@ -32,6 +32,24 @@ from .schemas import (
 from .services import delete_pattern, export_patterns, pattern_record_to_db
 
 logger = logging.getLogger(__name__)
+def _configure_file_logging(log_path: str) -> None:
+    abs_path = Path(log_path).expanduser().resolve()
+    abs_path.parent.mkdir(parents=True, exist_ok=True)
+    root_logger = logging.getLogger()
+    handler_exists = any(
+        isinstance(handler, logging.FileHandler) and Path(handler.baseFilename) == abs_path
+        for handler in root_logger.handlers
+    )
+    if handler_exists:
+        return
+    file_handler = logging.FileHandler(abs_path, encoding="utf-8")
+    formatter = logging.Formatter(
+        fmt="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    file_handler.setFormatter(formatter)
+    root_logger.addHandler(file_handler)
+
 
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "templates"))
 APP_VERSION = "0.1.0"
@@ -61,6 +79,8 @@ def _scrub_settings(settings_obj: Settings) -> Dict[str, Any]:
 def create_app(settings_override=None) -> FastAPI:
     init_db()
     settings = settings_override or get_settings()
+    if settings.log_file:
+        _configure_file_logging(settings.log_file)
     logger.info("Application settings: %s", json.dumps(_scrub_settings(settings), sort_keys=True))
     irtools = IRTools()
     flirc_util = FlircUtil()
@@ -257,6 +277,15 @@ def create_app(settings_override=None) -> FastAPI:
     def get_patterns_json():
         with get_session() as session:
             return export_patterns(session)
+
+    @app.get(
+        "/api/patterns",
+        response_model=dict,
+        summary="Return all stored patterns as JSON structure",
+        include_in_schema=False,
+    )
+    def get_patterns_legacy():
+        return get_patterns_json()
 
     @app.post(
         "/api/patterns",

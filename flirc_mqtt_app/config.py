@@ -29,6 +29,7 @@ class Settings:
     database_path: str = os.environ.get("DB_PATH", "patterns.db")
     irtools_path: str = os.environ.get("IRTOOLS_PATH", "irtools")
     flirc_util_path: str = os.environ.get("FLIRC_UTIL_PATH", "flirc_util")
+    log_file: Optional[str] = os.environ.get("LOG_FILE")
 
     mqtt_broker: str = os.environ.get("MQTT_BROKER", "localhost")
     mqtt_port: int = _int(os.environ.get("MQTT_PORT"), 1883)

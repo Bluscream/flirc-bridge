@@ -55,6 +55,20 @@ body {
   border-color: rgba(255, 255, 255, 0.5);
 }
 
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  border-radius: 50%;
+}
+
+.btn-icon span {
+  line-height: 1;
+}
+
 .form-control {
   background-color: rgba(9, 11, 17, 0.7);
   border-color: rgba(148, 163, 184, 0.15);
