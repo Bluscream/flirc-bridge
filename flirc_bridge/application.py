@@ -9,10 +9,10 @@ from typing import Optional
 
 from .config import Settings, get_settings
 from .logging import configure_logging
-from .database import Action, Device, get_session, init_db
+from .database import Device, get_session, init_db
 from .flirc_util import FlircUtil
 from .irtools import IRTools
-from .mqtt import MQTTManager, clear_bridge_topics
+from .mqtt import MQTTManager
 
 logger = logging.getLogger(__name__)
 
@@ -90,34 +90,6 @@ class BridgeRuntime:
             logger.info("MQTT disabled via configuration or missing broker settings")
             return
 
-        cleared_topics = []
-        if self._settings.mqtt_cleanup_enabled:
-            try:
-                cleared_topics = clear_bridge_topics(
-                    self._settings,
-                    collect_seconds=self._settings.mqtt_cleanup_collect_seconds,
-                    retain_only=self._settings.mqtt_cleanup_retain_only,
-                    match_substring=self._settings.mqtt_cleanup_match,
-                )
-            except Exception as exc:  # pragma: no cover - defensive
-                logger.warning(
-                    "Failed to clear MQTT topics matching '%s': %s",
-                    self._settings.mqtt_cleanup_match,
-                    exc,
-                )
-            else:
-                if cleared_topics:
-                    logger.info(
-                        "Cleared %s MQTT topic(s) matching '%s'",
-                        len(cleared_topics),
-                        self._settings.mqtt_cleanup_match,
-                    )
-                else:
-                    logger.info(
-                        "No MQTT topics matched cleanup filter '%s'",
-                        self._settings.mqtt_cleanup_match,
-                    )
-
         try:
             manager = MQTTManager(settings=self._settings, irtools=self.irtools)
             manager.start()
@@ -156,15 +128,6 @@ class BridgeRuntime:
 
             if self._mqtt_manager is not None:
                 try:
-                    with get_session() as session:
-                        devices = session.query(Device).all()
-                        for device in devices:
-                            for action in device.actions:
-                                self._mqtt_manager.clear_discovery(device, action)
-                except Exception as exc:  # pragma: no cover - defensive
-                    logger.warning("Failed to clear MQTT discovery topics: %s", exc)
-
-                try:
                     self._mqtt_manager.stop()
                 except Exception as exc:  # pragma: no cover - defensive
                     logger.warning("Exception while stopping MQTT manager: %s", exc)
@@ -184,6 +147,16 @@ class BridgeRuntime:
             logger.info("Interrupt received; shutting down runtime")
         finally:
             self.stop()
+
+    def reset_mqtt_discovery(self) -> int:
+        """Clear retained MQTT topics and republish discovery for all actions."""
+        if self._mqtt_manager is None:
+            raise RuntimeError("MQTT manager is not running")
+
+        self._mqtt_manager.unpublish_all()
+        published = self._republish_discovery()
+        logger.info("Reset MQTT discovery for %s action(s)", published)
+        return published
 
 
 __all__ = ["BridgeRuntime", "configure_logging", "scrub_settings"]

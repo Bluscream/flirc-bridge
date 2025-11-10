@@ -244,6 +244,22 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
         return get_patterns_json()
 
     @app.post(
+        "/api/mqtt/publish",
+        response_model=dict,
+        summary="Clear and republish MQTT discovery topics",
+    )
+    def publish_mqtt_discovery():
+        if runtime.mqtt_manager is None:
+            raise HTTPException(status_code=503, detail="MQTT is disabled")
+        try:
+            published = runtime.reset_mqtt_discovery()
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
+        except Exception as exc:  # pragma: no cover - defensive
+            raise HTTPException(status_code=500, detail=str(exc))
+        return {"published": published}
+
+    @app.post(
         "/api/patterns",
         response_model=PatternRecord,
         status_code=status.HTTP_201_CREATED,

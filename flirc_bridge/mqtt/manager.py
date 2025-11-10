@@ -53,6 +53,7 @@ class MQTTManager:
         self.client.on_log = self._on_log
 
         self._pattern_lookup: Dict[str, Callable[[], None]] = {}
+        self._published_object_ids: Set[str] = set()
         self._lock = threading.Lock()
         self._connected = threading.Event()
 
@@ -80,9 +81,17 @@ class MQTTManager:
             )
 
     def stop(self) -> None:
+        try: self.unpublish_all()
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("Failed to unpublish MQTT discovery topics on stop: %s", exc)
         self._connected.clear()
         self.client.loop_stop()
         self.client.disconnect()
+    def __del__(self) -> None:  # pragma: no cover - destructor is best-effort
+        try:
+            self.unpublish_all()
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------ events
     def _on_connect(self, client: mqtt.Client, userdata, flags, reason_code, properties) -> None:
@@ -139,9 +148,12 @@ class MQTTManager:
     def _attributes_topic(self, object_id: str) -> str:
         return f"{self._command_topic(object_id)}/attributes"
 
+    def _config_topic_for_object_id(self, object_id: str) -> str:
+        return f"{self.settings.mqtt_discovery_prefix}/button/{self._safe_prefix}_{object_id}/config"
+
     def publish_discovery(self, device: Device, action: Action, pattern: Pattern) -> None:
         object_id = _slugify(device.name, action.name)
-        topic = self._config_topic(device, action)
+        topic = self._config_topic_for_object_id(object_id)
         command_topic = self._command_topic(object_id)
         payload = {
             "name": f"{device.name} {action.name}",
@@ -188,6 +200,7 @@ class MQTTManager:
 
         with self._lock:
             self._pattern_lookup[command_topic] = handler
+            self._published_object_ids.add(object_id)
 
     def refresh_action(self, device: Device, action: Action) -> None:
         pattern = self._select_primary_pattern(action)
@@ -199,16 +212,36 @@ class MQTTManager:
 
     def clear_discovery(self, device: Device, action: Action) -> None:
         object_id = _slugify(device.name, action.name)
-        config_topic = self._config_topic(device, action)
-        self.client.publish(config_topic, "", retain=self.settings.mqtt_retain)
+        config_topic = self._config_topic_for_object_id(object_id)
+        self.client.publish(config_topic, "", retain=False)
         self.client.publish(
             self._attributes_topic(object_id),
             "",
-            retain=self.settings.mqtt_retain,
+            retain=False,
         )
         command_topic = self._command_topic(object_id)
         with self._lock:
             self._pattern_lookup.pop(command_topic, None)
+            self._published_object_ids.discard(object_id)
+
+    def unpublish_all(self) -> None:
+        """Remove retained discovery topics for all published actions."""
+        with self._lock:
+            object_ids = list(self._published_object_ids)
+            self._pattern_lookup.clear()
+            self._published_object_ids.clear()
+
+        if not object_ids:
+            return
+
+        for object_id in object_ids:
+            config_topic = self._config_topic_for_object_id(object_id)
+            attributes_topic = self._attributes_topic(object_id)
+            try:
+                self.client.publish(config_topic, "", retain=False)
+                self.client.publish(attributes_topic, "", retain=False)
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning("Failed to unpublish discovery topic %s: %s", config_topic, exc)
 
     def publish_all(self, records: Dict[str, Dict[str, Dict[str, str]]]) -> None:
         for device_name, actions in records.items():
@@ -266,103 +299,7 @@ class MQTTManager:
 
     def _config_topic(self, device: Device, action: Action) -> str:
         object_id = _slugify(device.name, action.name)
-        return f"{self.settings.mqtt_discovery_prefix}/button/{self._safe_prefix}_{object_id}/config"
+        return self._config_topic_for_object_id(object_id)
 
 
-def clear_bridge_topics(
-    settings: Optional[Settings] = None,
-    *,
-    collect_seconds: float = 2.0,
-    retain_only: bool = True,
-    match_substring: str = "flirc",
-) -> List[str]:
-    """Remove retained MQTT topics whose names contain the provided substring.
-
-    Args:
-        settings: Optional settings override.
-        collect_seconds: Time to wait for retained messages to arrive after subscribing.
-        retain_only: When True, only clear topics delivered as retained messages.
-
-    Returns:
-        List of cleared topic strings.
-    """
-
-    settings = settings or get_settings()
-    target_term = (match_substring or "").lower()
-    if not target_term:
-        return []
-
-    matched_topics: Set[str] = set()
-    connected = threading.Event()
-    client_prefix = (settings.mqtt_prefix or "flirc_bridge").replace("-", "_")
-    client_id = f"{client_prefix}-clear-{uuid.uuid4().hex[:8]}"
-    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id)
-
-    if settings.mqtt_username and settings.mqtt_password:
-        client.username_pw_set(settings.mqtt_username, settings.mqtt_password)
-
-    last_seen = time.monotonic()
-
-    def _on_connect(client: mqtt.Client, userdata, flags, reason_code, properties) -> None:  # type: ignore[override]
-        if reason_code != 0:
-            logger.error(
-                "Failed to connect for MQTT cleanup: reason=%s, properties=%s",
-                _format_reason(reason_code),
-                properties,
-            )
-            connected.set()
-            return
-        client.subscribe("#")
-        connected.set()
-
-    def _on_message(client: mqtt.Client, userdata, msg: mqtt.MQTTMessage) -> None:
-        nonlocal last_seen
-        topic_match = msg.topic.lower()
-        if target_term in topic_match:
-            if not retain_only or msg.retain:
-                matched_topics.add(msg.topic)
-                last_seen = time.monotonic()
-
-    client.on_connect = _on_connect
-    client.on_message = _on_message
-
-    client.connect(settings.mqtt_broker, settings.mqtt_port, keepalive=60)
-    client.loop_start()
-
-    if not connected.wait(timeout=10):
-        client.loop_stop()
-        client.disconnect()
-        raise RuntimeError("Timed out connecting to MQTT broker while clearing topics")
-
-    wait_time = max(collect_seconds, 0.0)
-    if wait_time:
-        while (time.monotonic() - last_seen) < wait_time:
-            time.sleep(0.1)
-
-    cleared_topics: List[str] = []
-    for topic in sorted(matched_topics):
-        info = client.publish(topic, payload=b"", qos=1, retain=True)
-        info.wait_for_publish()
-        cleared_topics.append(topic)
-        time.sleep(0.05)
-
-    time.sleep(0.1)
-    client.loop_stop()
-    client.disconnect()
-
-    if cleared_topics:
-        logger.info(
-            "Cleared retained topics:%s%s",
-            os.linesep,
-            os.linesep.join(f"  - {topic}" for topic in cleared_topics),
-        )
-    else:
-        logger.info(
-            "No retained topics matched for cleanup filter '%s'",
-            target_term,
-        )
-
-    return cleared_topics
-
-
-__all__ = ["MQTTManager", "clear_bridge_topics"]
+__all__ = ["MQTTManager"]
