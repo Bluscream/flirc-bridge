@@ -25,6 +25,7 @@ from ..mqtt import MQTTManager
 from ..schemas import (
     ErrorResponse,
     PatternListResponse,
+    PatternFormatLiteral,
     PatternRecord,
     ReceivePatternRequest,
     ReceivePatternResponse,
@@ -95,6 +96,49 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
     @app.on_event("shutdown")
     def shutdown_event():
         runtime.stop()
+
+    def _load_stored_pattern(
+        device: str,
+        action: str,
+        format_name: Optional[PatternFormatLiteral] = None,
+    ) -> Dict[str, Any]:
+        with get_session() as session:
+            query = (
+                session.query(Pattern)
+                .join(Action)
+                .join(Device)
+                .filter(Device.name == device, Action.name == action)
+            )
+            if format_name:
+                query = query.filter(Pattern.format == format_name)
+            pattern: Optional[Pattern] = query.first()
+            if not pattern:
+                raise HTTPException(status_code=404, detail="Stored pattern not found")
+            payload = pattern.data or "[]"
+            fmt = pattern.format
+        try:
+            data = json.loads(payload)
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=500, detail=f"Stored pattern is invalid JSON: {exc}") from exc
+        return {"format": fmt, "data": data}
+
+    def _transmit_pattern(
+        fmt: str,
+        data: Optional[List[str]],
+        carrier: Optional[int],
+        repeat: Optional[int],
+        irtools: IRTools,
+        flirc: FlircUtil,
+    ) -> Dict[str, Any]:
+        try:
+            stdout = irtools.send(fmt, data, carrier=carrier, repeat=repeat)  # type: ignore[arg-type]
+            return {"status": "sent", "output": stdout}
+        except IRToolsError as primary_exc:
+            try:
+                fallback_output = flirc.send_ir(data or [])
+                return {"status": "sent", "output": fallback_output, "fallback": "flirc_util"}
+            except FlircUtilError as secondary_exc:
+                raise HTTPException(status_code=500, detail=f"IRTools failed: {primary_exc}; flirc_util failed: {secondary_exc}")
 
     # ----------------------------------------------------------- web interface
     @app.get(
@@ -301,38 +345,39 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
         flirc: FlircUtil = state["flirc_util"]
 
         if payload.device and payload.action:
-            with get_session() as session:
-                query = (
-                    session.query(Pattern)
-                    .join(Action)
-                    .join(Device)
-                    .filter(Device.name == payload.device, Action.name == payload.action)
-                )
-                if payload.format:
-                    query = query.filter(Pattern.format == payload.format)
-                pattern: Optional[Pattern] = query.first()
-                if not pattern:
-                    raise HTTPException(status_code=404, detail="Stored pattern not found")
-                data = json.loads(pattern.data)
-                fmt = pattern.format
+            loaded = _load_stored_pattern(payload.device, payload.action, payload.format)
+            fmt = loaded["format"]
+            data = loaded["data"]
             carrier = payload.carrier
             repeat = payload.repeat
         else:
+            if payload.format is None or payload.data is None:
+                raise HTTPException(status_code=400, detail="format and data are required for custom patterns")
             fmt = payload.format  # type: ignore[assignment]
             data = payload.data  # type: ignore[assignment]
             carrier = payload.carrier
             repeat = payload.repeat
 
-        try:
-            stdout = irtools.send(fmt, data, carrier=carrier, repeat=repeat)  # type: ignore[arg-type]
-            return {"status": "sent", "output": stdout}
-        except IRToolsError as primary_exc:
-            try:
-                # flirc_util sendir expects space separated values
-                fallback_output = flirc.send_ir(data or [])
-                return {"status": "sent", "output": fallback_output, "fallback": "flirc_util"}
-            except FlircUtilError as secondary_exc:
-                raise HTTPException(status_code=500, detail=f"IRTools failed: {primary_exc}; flirc_util failed: {secondary_exc}")
+        return _transmit_pattern(fmt, data, carrier, repeat, irtools, flirc)
+
+    @app.get(
+        "/api/send",
+        response_model=dict,
+        responses={400: {"model": ErrorResponse}},
+        summary="Send a stored pattern via query parameters",
+    )
+    def send_pattern_get(
+        device: str,
+        action: str,
+        format: Optional[PatternFormatLiteral] = None,
+        carrier: Optional[int] = None,
+        repeat: Optional[int] = None,
+        state=Depends(get_app_state),
+    ):
+        irtools: IRTools = state["irtools"]
+        flirc: FlircUtil = state["flirc_util"]
+        loaded = _load_stored_pattern(device, action, format)
+        return _transmit_pattern(loaded["format"], loaded["data"], carrier, repeat, irtools, flirc)
 
     @app.post(
         "/api/receive",
