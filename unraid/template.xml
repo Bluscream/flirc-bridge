@@ -1,8 +1,8 @@
 <?xml version="1.0"?>
 <Container>
   <Name>flirc-bridge</Name>
-  <Repository>ghcr.io/bluscream/flirc-bridge:latest</Repository>
-  <Registry>https://github.com/Bluscream/flirc-bridge</Registry>
+  <Repository>bluscream1/flirc-bridge:latest</Repository>
+  <Registry>https://hub.docker.com/r/bluscream1/flirc-bridge</Registry>
   <Network>bridge</Network>
   <Shell>/bin/bash</Shell>
   <Privileged>false</Privileged>
