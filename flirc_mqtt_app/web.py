@@ -8,7 +8,7 @@ import sys
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 from types import SimpleNamespace
 
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, Request, status
@@ -20,7 +20,7 @@ from .config import Settings, get_settings
 from .database import Action, Device, Pattern, get_session, init_db
 from .flirc_util import FlircUtil, FlircUtilError
 from .irtools import IRTools, IRToolsError
-from .mqtt_manager import MQTTManager
+from .mqtt_manager import MQTTManager, clear_bridge_topics
 from .schemas import (
     ErrorResponse,
     PatternListResponse,
@@ -32,6 +32,8 @@ from .schemas import (
 from .services import delete_pattern, export_patterns, pattern_record_to_db
 
 logger = logging.getLogger(__name__)
+
+
 def _configure_file_logging(log_path: str) -> None:
     abs_path = Path(log_path).expanduser().resolve()
     abs_path.parent.mkdir(parents=True, exist_ok=True)
@@ -49,6 +51,9 @@ def _configure_file_logging(log_path: str) -> None:
     )
     file_handler.setFormatter(formatter)
     root_logger.addHandler(file_handler)
+    if root_logger.level == logging.WARNING:
+        root_logger.setLevel(logging.INFO)
+    logger.info("Now logging to %s", abs_path)
 
 
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "templates"))
@@ -87,6 +92,33 @@ def create_app(settings_override=None) -> FastAPI:
     mqtt_manager: Optional[MQTTManager] = None
 
     if settings.mqtt_enabled and settings.mqtt_broker:
+        cleared_topics: List[str] = []
+        if settings.mqtt_cleanup_enabled:
+            try:
+                cleared_topics = clear_bridge_topics(
+                    settings,
+                    collect_seconds=settings.mqtt_cleanup_collect_seconds,
+                    retain_only=settings.mqtt_cleanup_retain_only,
+                    match_substring=settings.mqtt_cleanup_match,
+                )
+                if cleared_topics:
+                    logger.info(
+                        "Cleared %s MQTT topic(s) matching '%s'",
+                        len(cleared_topics),
+                        settings.mqtt_cleanup_match,
+                    )
+                else:
+                    logger.info(
+                        "No MQTT topics matched cleanup filter '%s'",
+                        settings.mqtt_cleanup_match,
+                    )
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning(
+                    "Failed to clear MQTT topics matching '%s': %s",
+                    settings.mqtt_cleanup_match,
+                    exc,
+                )
+
         try:
             mqtt_manager = MQTTManager(settings=settings, irtools=irtools)
             mqtt_manager.start()

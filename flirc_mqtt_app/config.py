@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Optional
 
 from dotenv import load_dotenv
 
-# Load .env file if present in the project root.
-load_dotenv()
+# Load .env file if present in the project root (one level above this module).
+BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(dotenv_path=BASE_DIR / ".env", override=False)
 
 
 def _bool(value: str | None, default: bool = False) -> bool:
@@ -18,6 +21,13 @@ def _bool(value: str | None, default: bool = False) -> bool:
 def _int(value: str | None, default: int) -> int:
     try:
         return int(value) if value is not None else default
+    except ValueError:
+        return default
+
+
+def _float(value: str | None, default: float) -> float:
+    try:
+        return float(value) if value is not None else default
     except ValueError:
         return default
 
@@ -40,6 +50,10 @@ class Settings:
     mqtt_discovery_prefix: str = os.environ.get("MQTT_DISCOVERY_PREFIX", "homeassistant")
     mqtt_retain: bool = _bool(os.environ.get("MQTT_RETAIN"), True)
     mqtt_enabled: bool = _bool(os.environ.get("MQTT_ENABLED"), True)
+    mqtt_cleanup_enabled: bool = _bool(os.environ.get("MQTT_CLEANUP_ENABLED"), True)
+    mqtt_cleanup_collect_seconds: float = _float(os.environ.get("MQTT_CLEANUP_COLLECT_SECONDS"), 3.0)
+    mqtt_cleanup_retain_only: bool = _bool(os.environ.get("MQTT_CLEANUP_RETAIN_ONLY"), False)
+    mqtt_cleanup_match: str = os.environ.get("MQTT_CLEANUP_MATCH", "flirc")
 
     web_host: str = os.environ.get("WEB_HOST", "0.0.0.0")
     web_port: int = _int(os.environ.get("WEB_PORT"), 8000)

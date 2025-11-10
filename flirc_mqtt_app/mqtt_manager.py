@@ -217,8 +217,9 @@ def clear_bridge_topics(
     *,
     collect_seconds: float = 2.0,
     retain_only: bool = True,
+    match_substring: str = "flirc",
 ) -> List[str]:
-    """Remove retained MQTT topics whose names contain the substring 'flirc'.
+    """Remove retained MQTT topics whose names contain the provided substring.
 
     Args:
         settings: Optional settings override.
@@ -230,7 +231,9 @@ def clear_bridge_topics(
     """
 
     settings = settings or get_settings()
-    target_term = "flirc"
+    target_term = (match_substring or "").lower()
+    if not target_term:
+        return []
 
     matched_topics: Set[str] = set()
     connected = threading.Event()
@@ -276,7 +279,7 @@ def clear_bridge_topics(
 
     cleared_topics: List[str] = []
     for topic in sorted(matched_topics):
-        info = client.publish(topic, payload=None, qos=1, retain=True)
+        info = client.publish(topic, payload=b"", qos=1, retain=True)
         info.wait_for_publish()
         cleared_topics.append(topic)
         time.sleep(0.05)

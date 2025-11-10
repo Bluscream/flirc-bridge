@@ -10,8 +10,9 @@ Set-Location $scriptDir
 Write-Host "==> Stopping flirc-bridge service if running" -ForegroundColor Cyan
 try {
     Get-Process -Name python -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-    Get-Process -Name pwsh -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*flirc-bridge*start.ps1*' } | Stop-Process -Force -ErrorAction SilentlyContinue
-} catch {
+    # Get-Process -Name pwsh -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*flirc-bridge*start.ps1*' } | Stop-Process -Force -ErrorAction SilentlyContinue
+}
+catch {
     Write-Verbose $_
 }
 

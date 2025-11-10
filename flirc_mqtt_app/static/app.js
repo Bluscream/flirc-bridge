@@ -126,14 +126,32 @@ async function submitPattern(event) {
 }
 
 async function sendPattern(device, action) {
-  const response = await fetch("/api/send", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ device, action }),
-  });
-  if (!response.ok) {
-    const data = await response.json().catch(() => ({}));
-    showToast("Failed to send pattern: " + (data.detail || response.statusText), "danger", 5000);
+  let headers = buildHeaders({ "Content-Type": "application/json" });
+  if (requiresToken && headers === null) {
+    return;
+  }
+  headers = headers || { "Content-Type": "application/json" };
+  try {
+    const response = await fetch("/api/send", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ device, action }),
+    });
+    if (!response.ok) {
+      if (!(await handleAuthResponse(response))) {
+        return;
+      }
+      const data = await response.json().catch(() => ({}));
+      showToast(
+        "Failed to send pattern: " + (data.detail || response.statusText),
+        "danger",
+        5000
+      );
+    } else {
+      showToast(`Sent ${device}/${action}`, "success", 2500);
+    }
+  } catch (error) {
+    showToast(`Failed to send pattern: ${error}`, "danger", 5000);
   }
 }
 
@@ -184,7 +202,7 @@ async function deleteAction(device, action) {
       return;
     }
     const data = await response.json().catch(() => ({}));
-      showToast("Failed to delete pattern: " + (data.detail || response.statusText), "danger", 5000);
+    showToast("Failed to delete pattern: " + (data.detail || response.statusText), "danger", 5000);
   } else {
     window.location.reload();
   }
@@ -215,11 +233,11 @@ async function deleteDevice(device) {
         return;
       }
       const data = await response.json().catch(() => ({}));
-    showToast(
-      `Failed to delete ${device}/${action}: ${data.detail || response.statusText}`,
-      "danger",
-      5000
-    );
+      showToast(
+        `Failed to delete ${device}/${action}: ${data.detail || response.statusText}`,
+        "danger",
+        5000
+      );
       return;
     }
   }
