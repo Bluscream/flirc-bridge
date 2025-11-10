@@ -3,6 +3,7 @@ services:
     image: bluscream1/flirc-bridge:latest
     container_name: flirc-bridge
     restart: unless-stopped
+    privileged: false
     environment:
       MQTT_BROKER: ${MQTT_BROKER:-localhost}
       MQTT_PORT: ${MQTT_PORT:-1883}
@@ -21,6 +22,8 @@ services:
     ports:
       - "${WEB_PORT:-8000}:8000"
     volumes:
-      - ../patterns.db:/data/patterns.db
+      - ./data:/data
     devices:
       - /dev/bus/usb:/dev/bus/usb
+      - /dev/flirc:/dev/flirc
+      # - /

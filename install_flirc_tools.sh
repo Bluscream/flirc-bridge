@@ -98,9 +98,10 @@ echo "==> Extracting archive..."
 tar -xzf flirc.tar.gz
 
 # Find binaries in extracted directory
-FLIRC_UTIL=$(find . -name "flirc_util" -type f | head -n1)
-FLIRC_GUI=$(find . -name "flirc" -type f | head -n1)
-RULES_FILE=$(find . -name "99-flirc.rules" -type f | head -n1)
+FLIRC_UTIL=$(find . -type f -name "flirc_util" | head -n1)
+IRTOOLS_BIN=$(find . -type f -name "irtools" | head -n1)
+FLIRC_GUI=$(find . -type f -name "flirc" | head -n1)
+RULES_FILE=$(find . -type f -name "99-flirc.rules" | head -n1)
 
 if [ -z "$FLIRC_UTIL" ]; then
     echo "ERROR: flirc_util binary not found in archive"
@@ -110,14 +111,17 @@ fi
 echo "==> Installing binaries to $INSTALL_DIR..."
 install -m 755 "$FLIRC_UTIL" "$INSTALL_DIR/flirc_util"
 
-if [ -n "$FLIRC_GUI" ]; then
-    install -m 755 "$FLIRC_GUI" "$INSTALL_DIR/flirc" 2>/dev/null || true
+if [ -n "$IRTOOLS_BIN" ]; then
+    rm -f "$INSTALL_DIR/irtools"
+    install -m 755 "$IRTOOLS_BIN" "$INSTALL_DIR/irtools"
+    echo "==> Installed irtools binary"
+else
+    echo "ERROR: irtools binary not found in archive; installation cannot continue without it"
+    exit 1
 fi
 
-# Provide an irtools shim pointing to flirc_util if the dedicated binary is missing.
-if ! command -v irtools >/dev/null 2>&1; then
-    ln -sf "$INSTALL_DIR/flirc_util" "$INSTALL_DIR/irtools"
-    echo "==> Created shim: $INSTALL_DIR/irtools -> flirc_util"
+if [ -n "$FLIRC_GUI" ]; then
+    install -m 755 "$FLIRC_GUI" "$INSTALL_DIR/flirc" 2>/dev/null || true
 fi
 
 # Install udev rules if available
@@ -140,13 +144,5 @@ NEW_VERSION=$(flirc_util version 2>/dev/null | head -n1 || echo "unknown")
 echo "==> Installation complete!"
 echo "==> Installed version: $NEW_VERSION"
 echo "==> flirc_util location: $(which flirc_util)"
-
-# Check for irtools (separate package, optional)
-if ! command -v irtools >/dev/null 2>&1; then
-    echo ""
-    echo "NOTE: 'irtools' not found. You can:"
-    echo "  - Install it separately if available for your platform"
-    echo "  - Set IRTOOLS_PATH=flirc_util in .env to use flirc_util as fallback"
-fi
 
 exit 0
