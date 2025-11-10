@@ -4,8 +4,7 @@ import json
 import logging
 import threading
 from dataclasses import asdict
-from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 from .config import Settings, get_settings
 from .logging import configure_logging
@@ -17,13 +16,35 @@ from .mqtt import MQTTManager
 logger = logging.getLogger(__name__)
 
 
-def scrub_settings(settings_obj: Settings) -> dict:
-    """Return a sanitized copy of settings for logging/display purposes."""
-    data = asdict(settings_obj)
-    for key in ("mqtt_password", "web_token"):
-        if key in data and data[key]:
-            data[key] = "***"
-    return data
+def scrub_dict(data: Dict[str, Any], values_to_remove: List[Any]) -> Dict[str, Any]:
+    """Recursively remove keys whose values match any item in values_to_remove."""
+
+    def _should_remove(value: Any) -> bool:
+        for banned in values_to_remove:
+            if banned is None:
+                continue
+            if value == banned:
+                return True
+        return False
+
+    def _scrub(node: Any) -> Any:
+        if isinstance(node, dict):
+            cleaned: Dict[str, Any] = {}
+            for key, value in node.items():
+                if _should_remove(value):
+                    continue
+                cleaned[key] = _scrub(value)
+            return cleaned
+        if isinstance(node, list):
+            cleaned_list = []
+            for item in node:
+                if _should_remove(item):
+                    continue
+                cleaned_list.append(_scrub(item))
+            return cleaned_list
+        return node
+
+    return _scrub(dict(data))
 
 
 class BridgeRuntime:
@@ -74,7 +95,13 @@ class BridgeRuntime:
 
             logger.info(
                 "Starting bridge runtime with settings: %s",
-                json.dumps(scrub_settings(self._settings), sort_keys=True),
+                json.dumps(
+                    scrub_dict(
+                        asdict(self._settings),
+                        [self._settings.mqtt_password, self._settings.web_token],
+                    ),
+                    sort_keys=True,
+                ),
             )
 
             self._irtools = IRTools()
@@ -159,4 +186,4 @@ class BridgeRuntime:
         return published
 
 
-__all__ = ["BridgeRuntime", "configure_logging", "scrub_settings"]
+__all__ = ["BridgeRuntime", "configure_logging", "scrub_dict"]
