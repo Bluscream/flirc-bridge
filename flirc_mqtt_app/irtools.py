@@ -128,9 +128,18 @@ class IRTools(FlircTool):
 
     def version(self) -> str:
         """
-        Return the raw output of `irtools version`.
+        Return the raw output of `irtools version`, falling back to `--version`
+        when the subcommand is unavailable.
         """
-        result = self.run("version")
+        primary_error: Optional[ToolError] = None
+        try:
+            result = self.run("version")
+        except ToolError as exc:  # pragma: no cover - defensive
+            primary_error = exc
+            try:
+                result = self.run("--version")
+            except ToolError:
+                raise primary_error
         output = (result.stdout or "").strip()
         if not output and result.stderr:
             output = result.stderr.strip()
