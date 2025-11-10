@@ -1,0 +1,5 @@
+---
+alwaysApply: true
+---
+
+If you got a new prompt before you could finish what you were doing previously, summarize what you were doing into a todo item, and reorder your to-do list in a way that makes sense. Like when you were pushing a repo, and you got a prompt to build or test again, then build/test first then push.

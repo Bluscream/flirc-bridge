@@ -1,0 +1,7 @@
+---
+globs: *.ps1
+alwaysApply: false
+---
+
+While testing/debugging powershell scripts, make sure to use -Verbose to get more infos about whats happening.
+Also make sure to use `Install-Module -Name PSScriptAnalyzer;Import-Module -Name PSScriptAnalyzer;Invoke-ScriptAnalyzer -Path 'your_script.ps1'` where appropriate.

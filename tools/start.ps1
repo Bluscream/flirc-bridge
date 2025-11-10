@@ -5,7 +5,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $PSCommandPath
-Set-Location $scriptDir
+$projectRoot = Split-Path $scriptDir -Parent
+Set-Location $projectRoot
 
 Write-Host "==> Stopping flirc-bridge service if running" -ForegroundColor Cyan
 try {
@@ -61,8 +62,8 @@ Write-Host "==> Checking for Flirc tools..." -ForegroundColor Cyan
 $flircUtil = Get-Command flirc_util.exe -ErrorAction SilentlyContinue
 if (-not $flircUtil) {
     Write-Host "==> flirc_util.exe not found, installing..." -ForegroundColor Yellow
-    if (Test-Path ".\install_flirc_tools.ps1") {
-        & ".\install_flirc_tools.ps1"
+    if (Test-Path ".\tools\install_flirc_tools.ps1") {
+        & ".\tools\install_flirc_tools.ps1"
         # Refresh PATH after installation
         $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
     }

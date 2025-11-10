@@ -8,34 +8,13 @@ from pathlib import Path
 from typing import Optional
 
 from .config import Settings, get_settings
+from .logging import configure_logging
 from .database import Action, Device, get_session, init_db
 from .flirc_util import FlircUtil
 from .irtools import IRTools
 from .mqtt import MQTTManager, clear_bridge_topics
 
 logger = logging.getLogger(__name__)
-
-
-def configure_file_logging(log_path: str) -> None:
-    """Ensure application logs are written to the provided file path."""
-    abs_path = Path(log_path).expanduser().resolve()
-    abs_path.parent.mkdir(parents=True, exist_ok=True)
-
-    root_logger = logging.getLogger()
-    for handler in root_logger.handlers:
-        if isinstance(handler, logging.FileHandler) and Path(handler.baseFilename) == abs_path:
-            return
-
-    file_handler = logging.FileHandler(abs_path, encoding="utf-8")
-    formatter = logging.Formatter(
-        fmt="%(asctime)s %(levelname)s [%(name)s] %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
-    file_handler.setFormatter(formatter)
-    root_logger.addHandler(file_handler)
-    if root_logger.level == logging.WARNING:
-        root_logger.setLevel(logging.INFO)
-    logger.info("Now logging to %s", abs_path)
 
 
 def scrub_settings(settings_obj: Settings) -> dict:
@@ -91,8 +70,7 @@ class BridgeRuntime:
 
             init_db()
 
-            if self._settings.log_file:
-                configure_file_logging(self._settings.log_file)
+            configure_logging(self._settings.log_file)
 
             logger.info(
                 "Starting bridge runtime with settings: %s",
@@ -208,4 +186,4 @@ class BridgeRuntime:
             self.stop()
 
 
-__all__ = ["BridgeRuntime", "configure_file_logging", "scrub_settings"]
+__all__ = ["BridgeRuntime", "configure_logging", "scrub_settings"]

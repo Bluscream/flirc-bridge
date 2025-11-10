@@ -1,10 +1,18 @@
 # Import patterns.json into flirc-bridge service
 param(
-    [string]$PatternsFile = "..\patterns.json",
+    [string]$PatternsFile,
     [string]$ApiUrl = "http://127.0.0.1:8000/api/ingest"
 )
 
 $ErrorActionPreference = "Stop"
+
+$scriptDir = Split-Path -Parent $PSCommandPath
+$projectRoot = Split-Path $scriptDir -Parent
+$repoRoot = Split-Path $projectRoot -Parent
+
+if (-not $PSBoundParameters.ContainsKey("PatternsFile") -or [string]::IsNullOrWhiteSpace($PatternsFile)) {
+    $PatternsFile = Join-Path $repoRoot "patterns.json"
+}
 
 Write-Host "==> Importing patterns from $PatternsFile" -ForegroundColor Cyan
 
@@ -44,5 +52,3 @@ catch {
 }
 
 exit 0
-
-

@@ -33,6 +33,7 @@ def main() -> None:
         port=settings.web_port,
         reload=settings.web_reload,
         log_level="info",
+        log_config=None,
     )
 
 

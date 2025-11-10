@@ -30,7 +30,7 @@ from ..schemas import (
     ReceivePatternResponse,
     SendPatternRequest,
 )
-from .services import delete_pattern, export_patterns, pattern_record_to_db
+from ..services import delete_pattern, export_patterns, pattern_record_to_db
 
 logger = logging.getLogger(__name__)
 

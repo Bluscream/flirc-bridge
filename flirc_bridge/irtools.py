@@ -146,11 +146,12 @@ class IRTools(FlircTool):
                 result = self.run("--version")
             except ToolError:
                 message = (
-                    (primary_error.stderr if primary_error else None)
-                    or (primary_error.stdout if primary_error else None)
-                    or str(primary_error)
+                    getattr(primary_error, "stderr", None)
+                    or getattr(primary_error, "stdout", None)
+                    or (str(primary_error) if primary_error else None)
+                    or "unknown"
                 )
-                return message or "unknown"
+                return message
         output = (result.stdout or "").strip()
         if not output and result.stderr:
             output = result.stderr.strip()

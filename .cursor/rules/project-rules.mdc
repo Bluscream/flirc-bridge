@@ -1,0 +1,9 @@
+---
+alwaysApply: true
+---
+
+If you need to start the project, use `.\tools\start.ps1 -Detached` so you start the flirc-bridge without blocking your own execution.
+For a full test, run our project detached, then use the log file @flirc-bridge.log and your built-in browser at http://127.0.0.1:80 to test all functionality of the app.
+Since you seem to have issues with quoting on powershell json, you can use `.\tools\test.ps1 -Method GET -Endpoint http://127.0.0.1:8000/api/status -ContentType "application/json" -Device "Test Device" -Action "Test Action"` for example
+If you need to take a look at current MQTT topics for our app, you can do so by running `.\tools\test-mqtt.ps1`
+While testing/debugging any scripts, use debug logging/prints whereever you see it would help. But remember to clean them up after youre completely finished testing/debugging.
