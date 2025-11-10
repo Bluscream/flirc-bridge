@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
 import threading
 import time
 import uuid
@@ -13,9 +15,18 @@ from .config import Settings, get_settings
 from .database import Action, Device, Pattern
 from .irtools import IRTools, IRToolsError
 
+logger = logging.getLogger(__name__)
+
 
 def _slugify(*parts: str) -> str:
     return "_".join(part.strip().lower().replace(" ", "_") for part in parts if part)
+
+
+def _format_reason(reason) -> str:
+    try:
+        return f"{reason.name} ({int(reason)})"
+    except AttributeError:
+        return str(reason)
 
 
 class MQTTManager:
@@ -29,35 +40,73 @@ class MQTTManager:
         self.settings = settings or get_settings()
         self.irtools = irtools or IRTools()
         self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, self.settings.mqtt_client_id)
+        self.client.enable_logger(logger.getChild("client"))
+        self.client.reconnect_delay_set(min_delay=1, max_delay=30)
         if self.settings.mqtt_username and self.settings.mqtt_password:
             self.client.username_pw_set(self.settings.mqtt_username, self.settings.mqtt_password)
 
         self.client.on_connect = self._on_connect
         self.client.on_message = self._on_message
         self.client.on_disconnect = self._on_disconnect
+        self.client.on_log = self._on_log
 
         self._pattern_lookup: Dict[str, Callable[[], None]] = {}
         self._lock = threading.Lock()
+        self._connected = threading.Event()
 
     def start(self) -> None:
-        self.client.connect_async(self.settings.mqtt_broker, self.settings.mqtt_port, keepalive=60)
+        logger.info(
+            "Connecting to MQTT broker %s:%s as %s",
+            self.settings.mqtt_broker,
+            self.settings.mqtt_port,
+            self.settings.mqtt_client_id,
+        )
+        try:
+            self.client.connect(
+                self.settings.mqtt_broker,
+                self.settings.mqtt_port,
+                keepalive=60,
+            )
+        except Exception as exc:
+            logger.error("Failed to initiate MQTT connection: %s", exc)
+            raise
         self.client.loop_start()
+        if not self._connected.wait(timeout=10):
+            logger.warning(
+                "Timed out waiting for MQTT connection acknowledgement (broker=%s)",
+                self.settings.mqtt_broker,
+            )
 
     def stop(self) -> None:
+        self._connected.clear()
         self.client.loop_stop()
         self.client.disconnect()
 
     # ------------------------------------------------------------------ events
     def _on_connect(self, client: mqtt.Client, userdata, flags, reason_code, properties) -> None:
         if reason_code != 0:
-            print(f"[MQTT] Failed to connect (code={reason_code})")
+            logger.error(
+                "MQTT connection refused: reason=%s, properties=%s",
+                _format_reason(reason_code),
+                properties,
+            )
             return
-        print("[MQTT] Connected")
+        self._connected.set()
+        session_present = getattr(flags, "session_present", getattr(flags, "sessionPresent", None))
+        logger.info("MQTT connected (session_present=%s)", session_present)
         client.subscribe(f"{self._button_prefix()}/#")
         client.subscribe(f"{self.settings.mqtt_base_topic}/send")
 
     def _on_disconnect(self, client: mqtt.Client, userdata, flags, reason_code, properties) -> None:
-        print(f"[MQTT] Disconnected (code={reason_code})")
+        self._connected.clear()
+        logger.warning(
+            "MQTT disconnected: reason=%s, properties=%s",
+            _format_reason(reason_code),
+            properties,
+        )
+
+    def _on_log(self, client: mqtt.Client, userdata, level, buf) -> None:
+        logger.debug("MQTT client log (level=%s): %s", level, buf)
 
     def _on_message(self, client: mqtt.Client, userdata, msg: mqtt.MQTTMessage) -> None:
         payload = msg.payload.decode("utf-8").strip()
@@ -73,7 +122,7 @@ class MQTTManager:
         else:
             if topic.startswith(self._command_prefix()) or topic.startswith(f"{self._button_prefix()}/"):
                 return
-            print(f"[MQTT] No handler registered for topic {topic}")
+            logger.debug("No MQTT handler registered for topic %s", topic)
 
     # ---------------------------------------------------------------- utilities
     def _button_prefix(self) -> str:
@@ -125,9 +174,15 @@ class MQTTManager:
         def handler() -> None:
             try:
                 self.irtools.send(pattern_format, json.loads(pattern_data))
-                print(f"[MQTT] Sent pattern {device_name}/{action_name}/{pattern_format}")
+                logger.info("Sent pattern %s/%s (%s)", device_name, action_name, pattern_format)
             except (IRToolsError, json.JSONDecodeError) as exc:
-                print(f"[MQTT] Failed to send pattern: {exc}")
+                logger.error(
+                    "Failed to send pattern %s/%s (%s): %s",
+                    device_name,
+                    action_name,
+                    pattern_format,
+                    exc,
+                )
 
         with self._lock:
             self._pattern_lookup[command_topic] = handler
@@ -178,21 +233,21 @@ class MQTTManager:
         try:
             data = json.loads(payload)
         except json.JSONDecodeError:
-            print("[MQTT] Custom payload must be valid JSON")
+            logger.warning("Custom MQTT payload must be valid JSON")
             return
         fmt = data.get("format")
         values = data.get("data")
         carrier = data.get("carrier")
         repeat = data.get("repeat")
         if not fmt or not values:
-            print("[MQTT] Custom payload missing 'format' or 'data'")
+            logger.warning("Custom MQTT payload missing 'format' or 'data'")
             return
         try:
             items = [str(item) for item in values] if isinstance(values, list) else [str(values)]
             self.irtools.send(fmt, items, carrier=carrier, repeat=repeat)
-            print("[MQTT] Sent custom pattern via MQTT")
+            logger.info("Sent custom MQTT payload (%s)", fmt)
         except IRToolsError as exc:
-            print(f"[MQTT] Failed to send custom pattern: {exc}")
+            logger.error("Failed to send custom MQTT payload (%s): %s", fmt, exc)
 
     def _select_primary_pattern(self, action: Action) -> Optional[Pattern]:
         if not action.patterns:
@@ -247,7 +302,11 @@ def clear_bridge_topics(
 
     def _on_connect(client: mqtt.Client, userdata, flags, reason_code, properties) -> None:  # type: ignore[override]
         if reason_code != 0:
-            print(f"[MQTT] Failed to connect for clearing topics (code={reason_code})")
+            logger.error(
+                "Failed to connect for MQTT cleanup: reason=%s, properties=%s",
+                _format_reason(reason_code),
+                properties,
+            )
             connected.set()
             return
         client.subscribe("#")
@@ -289,11 +348,16 @@ def clear_bridge_topics(
     client.disconnect()
 
     if cleared_topics:
-        print("[MQTT] Cleared retained topics:")
-        for topic in cleared_topics:
-            print(f"  - {topic}")
+        logger.info(
+            "Cleared retained topics:%s%s",
+            os.linesep,
+            os.linesep.join(f"  - {topic}" for topic in cleared_topics),
+        )
     else:
-        print("[MQTT] No retained topics matched for clearing.")
+        logger.info(
+            "No retained topics matched for cleanup filter '%s'",
+            target_term,
+        )
 
     return cleared_topics
 

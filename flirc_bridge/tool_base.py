@@ -45,7 +45,7 @@ class BaseTool:
         raise ToolError(f"Unable to locate executable: {self.executable}")
 
     @staticmethod
-    def ensure_flirc_tools_installed(logger_name: str = "flirc_mqtt_app.tool_base") -> None:
+    def ensure_flirc_tools_installed(logger_name: str = "flirc_bridge.tool_base") -> None:
         global _install_attempted
         if _install_attempted:
             return

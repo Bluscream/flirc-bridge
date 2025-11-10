@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import uvicorn
 
-from flirc_mqtt_app.config import get_settings
-from flirc_mqtt_app.web import create_app
+from flirc_bridge.config import get_settings
+from flirc_bridge.web import create_app
 
 
 def main() -> None:

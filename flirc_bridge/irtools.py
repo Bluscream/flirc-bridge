@@ -63,14 +63,14 @@ class IRTools(FlircTool):
         resolved = shutil.which(candidate) if candidate else None
 
         if not resolved:
-            self.ensure_flirc_tools_installed("flirc_mqtt_app.irtools")
+            self.ensure_flirc_tools_installed("flirc_bridge.irtools")
             resolved = shutil.which(candidate) if candidate else None
 
         if not resolved:
             fallback = settings.flirc_util_path
             fallback_resolved = shutil.which(fallback)
             if not fallback_resolved:
-                self.ensure_flirc_tools_installed("flirc_mqtt_app.irtools")
+                self.ensure_flirc_tools_installed("flirc_bridge.irtools")
                 fallback_resolved = shutil.which(fallback)
             candidate = fallback_resolved or fallback
         else:

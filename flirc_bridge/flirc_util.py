@@ -63,7 +63,7 @@ class FlircUtil(FlircTool):
         default_exec = executable or settings.flirc_util_path
         resolved = shutil.which(default_exec) if default_exec else None
         if not resolved:
-            self.ensure_flirc_tools_installed("flirc_mqtt_app.flirc_util")
+            self.ensure_flirc_tools_installed("flirc_bridge.flirc_util")
             resolved = shutil.which(default_exec) if default_exec else None
         super().__init__(resolved or default_exec)
 
