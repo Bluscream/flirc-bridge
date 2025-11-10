@@ -225,4 +225,4 @@ Publish to `flirc_bridge/send`:
 - Enable `AUTO_STORE_PATTERNS=true` to automatically save newly received patterns (unless already present by matching hash).
 - Set `WEB_TOKEN` to require an access token for add/edit/delete operations via the UI or REST API.
 - Each stored pattern keeps a SHA-256 hash alongside the payload so duplicates can be detected quickly.
-- The project currently assumes `irtools` supports `send --format ... --data ...` and `listen --format ...`. Adjust the command flags in `flirc_bridge/flirc.py` if your version differs.
+- The project currently assumes `irtools` supports `send --format ... --data ...` and `listen --format ...`. Adjust the command flags in `flirc_bridge/irtools.py` if your version differs.

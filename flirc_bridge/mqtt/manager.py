@@ -13,7 +13,7 @@ import paho.mqtt.client as mqtt
 
 from ..config import Settings, get_settings
 from ..database import Action, Device, Pattern
-from .. import flirc
+from ..irtools import IRTools, IRToolsError
 
 logger = logging.getLogger(__name__)
 
@@ -35,8 +35,10 @@ class MQTTManager:
     def __init__(
         self,
         settings: Optional[Settings] = None,
+        irtools: Optional[IRTools] = None,
     ) -> None:
         self.settings = settings or get_settings()
+        self.irtools = irtools or IRTools()
         self._prefix = self.settings.mqtt_prefix
         self._safe_prefix = self._prefix.replace("-", "_")
         self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, self._safe_prefix)
@@ -185,9 +187,9 @@ class MQTTManager:
 
         def handler() -> None:
             try:
-                flirc.irtools_send(pattern_format, json.loads(pattern_data))
+                self.irtools.send(pattern_format, json.loads(pattern_data))
                 logger.info("Sent pattern %s/%s (%s)", device_name, action_name, pattern_format)
-            except (flirc.IRToolsError, json.JSONDecodeError) as exc:
+            except (IRToolsError, json.JSONDecodeError) as exc:
                 logger.error(
                     "Failed to send pattern %s/%s (%s): %s",
                     device_name,
@@ -277,9 +279,9 @@ class MQTTManager:
             return
         try:
             items = [str(item) for item in values] if isinstance(values, list) else [str(values)]
-            flirc.irtools_send(fmt, items, carrier=carrier, repeat=repeat)
+            self.irtools.send(fmt, items, carrier=carrier, repeat=repeat)
             logger.info("Sent custom MQTT payload (%s)", fmt)
-        except flirc.IRToolsError as exc:
+        except IRToolsError as exc:
             logger.error("Failed to send custom MQTT payload (%s): %s", fmt, exc)
 
     def _select_primary_pattern(self, action: Action) -> Optional[Pattern]:

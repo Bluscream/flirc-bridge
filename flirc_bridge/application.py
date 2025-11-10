@@ -9,7 +9,8 @@ from typing import Any, Dict, List, Optional
 from .config import Settings, get_settings
 from .logging import configure_logging
 from .database import Device, get_session, init_db
-from . import flirc
+from .flirc_util import FlircUtil
+from .irtools import IRTools
 from .mqtt import MQTTManager
 
 logger = logging.getLogger(__name__)
@@ -51,6 +52,8 @@ class BridgeRuntime:
 
     def __init__(self, settings: Optional[Settings] = None) -> None:
         self._settings = settings or get_settings()
+        self._irtools: Optional[IRTools] = None
+        self._flirc_util: Optional[FlircUtil] = None
         self._mqtt_manager: Optional[MQTTManager] = None
         self._shutdown = threading.Event()
         self._started = False
@@ -63,6 +66,18 @@ class BridgeRuntime:
     @property
     def started(self) -> bool:
         return self._started
+
+    @property
+    def irtools(self) -> IRTools:
+        if self._irtools is None:
+            raise RuntimeError("BridgeRuntime has not been started; IRTools unavailable")
+        return self._irtools
+
+    @property
+    def flirc_util(self) -> FlircUtil:
+        if self._flirc_util is None:
+            raise RuntimeError("BridgeRuntime has not been started; FlircUtil unavailable")
+        return self._flirc_util
 
     @property
     def mqtt_manager(self) -> Optional[MQTTManager]:
@@ -89,6 +104,9 @@ class BridgeRuntime:
                 ),
             )
 
+            self._irtools = IRTools()
+            self._flirc_util = FlircUtil()
+
             self._start_mqtt_if_enabled()
 
             self._started = True
@@ -100,7 +118,7 @@ class BridgeRuntime:
             return
 
         try:
-            manager = MQTTManager(settings=self._settings)
+            manager = MQTTManager(settings=self._settings, irtools=self.irtools)
             manager.start()
         except Exception as exc:  # pragma: no cover - defensive
             logger.warning("MQTT disabled due to startup error: %s", exc)
@@ -143,6 +161,8 @@ class BridgeRuntime:
                 finally:
                     self._mqtt_manager = None
 
+            self._irtools = None
+            self._flirc_util = None
             self._started = False
 
     def wait_forever(self) -> None:

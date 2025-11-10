@@ -19,7 +19,8 @@ from fastapi.templating import Jinja2Templates
 from ..application import BridgeRuntime
 from ..config import Settings, get_settings
 from ..database import Action, Device, Pattern, get_session
-from .. import flirc
+from ..flirc_util import FlircUtil, FlircUtilError
+from ..irtools import IRTools, IRToolsError
 from ..mqtt import MQTTManager
 from ..schemas import (
     ErrorResponse,
@@ -58,6 +59,8 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
     runtime.start()
     settings = runtime.settings
 
+    irtools = runtime.irtools
+    flirc_util = runtime.flirc_util
     app = FastAPI(
         title=f"{settings.mqtt_device_name} - Flirc Bridge",
         version=APP_VERSION,
@@ -84,6 +87,8 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
     def get_app_state():
         return {
             "settings": settings,
+            "irtools": runtime.irtools,
+            "flirc_util": runtime.flirc_util,
             "mqtt": runtime.mqtt_manager,
             "runtime": runtime,
         }
@@ -130,6 +135,8 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
         data: Optional[List[str]],
         carrier: Optional[int],
         repeat: Optional[int],
+        irtools: IRTools,
+        flirc: FlircUtil,
         *,
         device: Optional[str] = None,
         action: Optional[str] = None,
@@ -157,16 +164,16 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
                 data_repr,
             )
         try:
-            stdout = flirc.irtools_send(fmt, data or [], carrier=carrier, repeat=repeat)
+            stdout = irtools.send(fmt, data or [], carrier=carrier, repeat=repeat)  # type: ignore[arg-type]
             logger.info(
                 "[%s] IRTools send successful: %s",
                 source,
                 stdout.strip() if isinstance(stdout, str) else stdout,
             )
             return {"status": "sent", "output": stdout}
-        except flirc.IRToolsError as primary_exc:
+        except IRToolsError as primary_exc:
             try:
-                fallback_output = flirc.flirc_send_ir(data or [])
+                fallback_output = flirc.send_ir(data or [])
                 logger.warning(
                     "[%s] IRTools failed (%s); falling back to flirc_util. Output=%s",
                     source,
@@ -174,7 +181,7 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
                     fallback_output,
                 )
                 return {"status": "sent", "output": fallback_output, "fallback": "flirc_util"}
-            except flirc.FlircUtilError as secondary_exc:
+            except FlircUtilError as secondary_exc:
                 raise HTTPException(status_code=500, detail=f"IRTools failed: {primary_exc}; flirc_util failed: {secondary_exc}")
 
     # ----------------------------------------------------------- web interface
@@ -186,6 +193,8 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
     def get_status(request: Request, state=Depends(get_app_state)):
         settings_obj = state["settings"]
         mqtt_state: Optional[MQTTManager] = state["mqtt"]
+        irtools_instance: IRTools = state["irtools"]
+        flirc_instance: FlircUtil = state["flirc_util"]
 
         settings_payload = asdict(settings_obj)
         settings_payload.pop("mqtt_password", None)
@@ -218,12 +227,12 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
             db_info["error"] = str(exc)
 
         try:
-            irtools_info = flirc.irtools_version_info()
-        except flirc.IRToolsError as exc:
+            irtools_info = irtools_instance.version_info()
+        except IRToolsError as exc:
             irtools_info = {"tool": "irtools", "error": str(exc)}
 
         try:
-            flirc_settings = flirc.flirc_settings_info()
+            flirc_settings = flirc_instance.settings_info()
             details = flirc_settings.get("details", {})
             settings_map = flirc_settings.get("settings", {})
             flirc_summary = {
@@ -241,7 +250,7 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
                 "memory_info": settings_map.get("memory_info"),
                 "recorded_keys": flirc_settings.get("recorded_keys", []),
             }
-        except flirc.FlircUtilError as exc:
+        except FlircUtilError as exc:
             flirc_summary = {"tool": "flirc_util", "error": str(exc)}
 
         environment_info = {
@@ -395,6 +404,8 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
             data,
             carrier,
             repeat,
+            state["irtools"],
+            state["flirc_util"],
             device=payload.device,
             action=payload.action,
             source="POST /api/send",
@@ -420,6 +431,8 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
             loaded["data"],
             carrier,
             repeat,
+            state["irtools"],
+            state["flirc_util"],
             device=device,
             action=action,
             source="GET /api/send",
@@ -433,8 +446,8 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
     def receive_pattern(request: ReceivePatternRequest, state=Depends(get_app_state), _: None = Depends(require_auth)):
         settings_obj = state["settings"]
         try:
-            data, output = flirc.irtools_listen(request.format, request.timeout)
-        except flirc.IRToolsError as exc:
+            data, output = state["irtools"].listen(request.format, request.timeout)
+        except IRToolsError as exc:
             raise HTTPException(status_code=500, detail=str(exc))
 
         should_save = request.save
@@ -530,9 +543,10 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
         summary="Return flirc device logs",
     )
     def get_device_logs(state=Depends(get_app_state), _: None = Depends(require_auth)):
+        flirc_util: FlircUtil = state["flirc_util"]
         try:
-            log_output = flirc.flirc_device_log()
-        except flirc.FlircUtilError as exc:
+            log_output = flirc_util.device_log()
+        except FlircUtilError as exc:
             raise HTTPException(status_code=500, detail=str(exc))
         return PlainTextResponse(log_output or "")
 
@@ -542,9 +556,10 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
         summary="Run flirc device unit tests",
     )
     def run_unit_test(state=Depends(get_app_state), _: None = Depends(require_auth)):
+        flirc_util: FlircUtil = state["flirc_util"]
         try:
-            result = flirc.flirc_unit_test()
-        except flirc.FlircUtilError as exc:
+            result = flirc_util.unit_test()
+        except FlircUtilError as exc:
             raise HTTPException(status_code=500, detail=str(exc))
         payload = {
             "exitcode": result.returncode,
