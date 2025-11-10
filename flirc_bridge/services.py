@@ -7,7 +7,7 @@ from typing import Dict, List
 from sqlalchemy.orm import Session
 
 from . import database
-from .mqtt_manager import MQTTManager
+from .mqtt import MQTTManager
 from .schemas import PatternFormatModel, PatternRecord
 
 

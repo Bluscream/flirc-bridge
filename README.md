@@ -23,6 +23,12 @@ This project recreates the functionality of the `breeily/flirc_bridge` container
   - `flirc_bridge/commands/<device_action_format>` – triggers stored patterns.
   - `flirc_bridge/send` – accepts custom payloads (`{"format": "...", "data": [...]}`).
 
+## Module layout
+
+- `flirc_bridge/application.py` – shared runtime that initializes logging, database, tools, and MQTT.
+- `flirc_bridge/mqtt/` – MQTT discovery/command manager and cleanup utilities.
+- `flirc_bridge/web/` – FastAPI application plus static assets and templates.
+
 ## Prerequisites
 
 - Python 3.12+
@@ -48,15 +54,17 @@ Environment variables (defaults shown):
 | `MQTT_BASE_TOPIC`       | `flirc_bridge`  | Base MQTT topic                              |
 | `MQTT_DISCOVERY_PREFIX` | `homeassistant` | Discovery prefix                             |
 | `MQTT_RETAIN`           | `true`          | Retain discovery messages                    |
-| `MQTT_ENABLED`          | `true`          | Disable to run web UI without MQTT           |
+| `MQTT_ENABLED`          | `true`          | Disable to run the web UI without MQTT       |
 | `AUTO_STORE_PATTERNS`   | `false`         | Automatically persist received patterns      |
+| `WEB_ENABLED`           | `true`          | Disable to run headless (MQTT-only) mode     |
 | `WEB_TOKEN`             | _(unset)_       | If set, required for add/edit/delete actions |
 | `WEB_HOST`              | `0.0.0.0`       | Web server bind address                      |
 | `WEB_PORT`              | `8000`          | Web server port                              |
 | `WEB_RELOAD`            | `false`         | Enable auto-reload (development)             |
 | `IR_LISTEN_TIMEOUT`     | `10`            | Default listen timeout                       |
 
-Set `MQTT_ENABLED=false` if you only want the REST/web components (for example when an MQTT broker is not available yet).
+Set `MQTT_ENABLED=false` if you only need the REST/web components (for example when an MQTT broker is not available yet).  
+Set `WEB_ENABLED=false` to run the bridge without starting the FastAPI server; MQTT and database services remain active.
 
 ## Running locally
 

@@ -13,15 +13,16 @@ from types import SimpleNamespace
 
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
-from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 
-from .config import Settings, get_settings
-from .database import Action, Device, Pattern, get_session, init_db
-from .flirc_util import FlircUtil, FlircUtilError
-from .irtools import IRTools, IRToolsError
-from .mqtt_manager import MQTTManager, clear_bridge_topics
-from .schemas import (
+from ..application import BridgeRuntime
+from ..config import Settings, get_settings
+from ..database import Action, Device, Pattern, get_session
+from ..flirc_util import FlircUtil, FlircUtilError
+from ..irtools import IRTools, IRToolsError
+from ..mqtt import MQTTManager
+from ..schemas import (
     ErrorResponse,
     PatternListResponse,
     PatternRecord,
@@ -32,28 +33,6 @@ from .schemas import (
 from .services import delete_pattern, export_patterns, pattern_record_to_db
 
 logger = logging.getLogger(__name__)
-
-
-def _configure_file_logging(log_path: str) -> None:
-    abs_path = Path(log_path).expanduser().resolve()
-    abs_path.parent.mkdir(parents=True, exist_ok=True)
-    root_logger = logging.getLogger()
-    handler_exists = any(
-        isinstance(handler, logging.FileHandler) and Path(handler.baseFilename) == abs_path
-        for handler in root_logger.handlers
-    )
-    if handler_exists:
-        return
-    file_handler = logging.FileHandler(abs_path, encoding="utf-8")
-    formatter = logging.Formatter(
-        fmt="%(asctime)s %(levelname)s [%(name)s] %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
-    file_handler.setFormatter(formatter)
-    root_logger.addHandler(file_handler)
-    if root_logger.level == logging.WARNING:
-        root_logger.setLevel(logging.INFO)
-    logger.info("Now logging to %s", abs_path)
 
 
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "templates"))
@@ -73,69 +52,14 @@ def _collect_version_info(command: str) -> Dict[str, Any]:
     return {"command": command, "error": "deprecated"}
 
 
-def _scrub_settings(settings_obj: Settings) -> Dict[str, Any]:
-    data = asdict(settings_obj)
-    for key in ("mqtt_password", "web_token"):
-        if key in data and data[key]:
-            data[key] = "***"
-    return data
+def create_app(settings_override: Optional[Settings] = None, runtime: Optional[BridgeRuntime] = None) -> FastAPI:
+    if runtime is None:
+        runtime = BridgeRuntime(settings_override or get_settings())
+    runtime.start()
+    settings = runtime.settings
 
-
-def create_app(settings_override=None) -> FastAPI:
-    init_db()
-    settings = settings_override or get_settings()
-    if settings.log_file:
-        _configure_file_logging(settings.log_file)
-    logger.info("Application settings: %s", json.dumps(_scrub_settings(settings), sort_keys=True))
-    irtools = IRTools()
-    flirc_util = FlircUtil()
-    mqtt_manager: Optional[MQTTManager] = None
-
-    if settings.mqtt_enabled and settings.mqtt_broker:
-        cleared_topics: List[str] = []
-        if settings.mqtt_cleanup_enabled:
-            try:
-                cleared_topics = clear_bridge_topics(
-                    settings,
-                    collect_seconds=settings.mqtt_cleanup_collect_seconds,
-                    retain_only=settings.mqtt_cleanup_retain_only,
-                    match_substring=settings.mqtt_cleanup_match,
-                )
-                if cleared_topics:
-                    logger.info(
-                        "Cleared %s MQTT topic(s) matching '%s'",
-                        len(cleared_topics),
-                        settings.mqtt_cleanup_match,
-                    )
-                else:
-                    logger.info(
-                        "No MQTT topics matched cleanup filter '%s'",
-                        settings.mqtt_cleanup_match,
-                    )
-            except Exception as exc:  # pragma: no cover - defensive
-                logger.warning(
-                    "Failed to clear MQTT topics matching '%s': %s",
-                    settings.mqtt_cleanup_match,
-                    exc,
-                )
-
-        try:
-            mqtt_manager = MQTTManager(settings=settings, irtools=irtools)
-            mqtt_manager.start()
-            with get_session() as session:
-                devices = session.query(Device).all()
-                published = 0
-                for device in devices:
-                    for action in device.actions:
-                        mqtt_manager.refresh_action(device, action)
-                        published += 1
-                logger.info("Republished MQTT discovery for %s actions", published)
-        except Exception as exc:  # pragma: no cover - defensive
-            logger.warning("MQTT disabled due to startup error: %s", exc)
-            mqtt_manager = None
-    else:
-        logger.info("MQTT disabled via configuration or missing broker settings")
-
+    irtools = runtime.irtools
+    flirc_util = runtime.flirc_util
     app = FastAPI(
         title="Flirc MQTT Bridge",
         version=APP_VERSION,
@@ -160,17 +84,17 @@ def create_app(settings_override=None) -> FastAPI:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
 
     def get_app_state():
-        return {"settings": settings, "irtools": irtools, "flirc_util": flirc_util, "mqtt": mqtt_manager}
+        return {
+            "settings": settings,
+            "irtools": irtools,
+            "flirc_util": flirc_util,
+            "mqtt": runtime.mqtt_manager,
+            "runtime": runtime,
+        }
 
     @app.on_event("shutdown")
     def shutdown_event():
-        if mqtt_manager:
-            with get_session() as session:
-                devices = session.query(Device).all()
-                for device in devices:
-                    for action in device.actions:
-                        mqtt_manager.clear_discovery(device, action)
-            mqtt_manager.stop()
+        runtime.stop()
 
     # ----------------------------------------------------------- web interface
     @app.get(
@@ -295,7 +219,7 @@ def create_app(settings_override=None) -> FastAPI:
                 "request": request,
                 "patterns": records,
                 "settings": display_settings,
-                "mqtt_available": mqtt_manager is not None,
+                "mqtt_available": runtime.mqtt_manager is not None,
                 "requires_token": bool(settings.web_token),
             },
         )

@@ -37,10 +37,13 @@ class Settings:
     """Application configuration loaded from environment variables."""
 
     database_path: str = os.environ.get("DB_PATH", "patterns.db")
+    log_file: Optional[str] = os.environ.get("LOG_FILE")
     irtools_path: str = os.environ.get("IRTOOLS_PATH", "irtools")
     flirc_util_path: str = os.environ.get("FLIRC_UTIL_PATH", "flirc_util")
-    log_file: Optional[str] = os.environ.get("LOG_FILE")
+    ir_listen_timeout: int = _int(os.environ.get("IR_LISTEN_TIMEOUT"), 10)
+    auto_store_patterns: bool = _bool(os.environ.get("AUTO_STORE_PATTERNS"), False)
 
+    mqtt_enabled: bool = _bool(os.environ.get("MQTT_ENABLED"), True)
     mqtt_broker: str = os.environ.get("MQTT_BROKER", "localhost")
     mqtt_port: int = _int(os.environ.get("MQTT_PORT"), 1883)
     mqtt_username: str | None = os.environ.get("MQTT_USERNAME", "homeassistant")
@@ -49,19 +52,16 @@ class Settings:
     mqtt_base_topic: str = os.environ.get("MQTT_BASE_TOPIC", "flirc_bridge")
     mqtt_discovery_prefix: str = os.environ.get("MQTT_DISCOVERY_PREFIX", "homeassistant")
     mqtt_retain: bool = _bool(os.environ.get("MQTT_RETAIN"), True)
-    mqtt_enabled: bool = _bool(os.environ.get("MQTT_ENABLED"), True)
     mqtt_cleanup_enabled: bool = _bool(os.environ.get("MQTT_CLEANUP_ENABLED"), True)
     mqtt_cleanup_collect_seconds: float = _float(os.environ.get("MQTT_CLEANUP_COLLECT_SECONDS"), 3.0)
     mqtt_cleanup_retain_only: bool = _bool(os.environ.get("MQTT_CLEANUP_RETAIN_ONLY"), False)
     mqtt_cleanup_match: str = os.environ.get("MQTT_CLEANUP_MATCH", "flirc")
 
+    web_enabled: bool = _bool(os.environ.get("WEB_ENABLED"), True)
     web_host: str = os.environ.get("WEB_HOST", "0.0.0.0")
     web_port: int = _int(os.environ.get("WEB_PORT"), 8000)
     web_reload: bool = _bool(os.environ.get("WEB_RELOAD"), False)
     web_token: str | None = os.environ.get("WEB_TOKEN")
-
-    ir_listen_timeout: int = _int(os.environ.get("IR_LISTEN_TIMEOUT"), 10)
-    auto_store_patterns: bool = _bool(os.environ.get("AUTO_STORE_PATTERNS"), False)
 
 
 def get_settings() -> Settings:
