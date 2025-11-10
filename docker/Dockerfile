@@ -1,5 +1,7 @@
 FROM python:3.12-slim
 
+ARG DEBIAN_FRONTEND=noninteractive
+
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     IRTOOLS_PATH=/usr/local/bin/irtools \
