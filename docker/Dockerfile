@@ -1,7 +1,9 @@
 FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    IRTOOLS_PATH=/usr/local/bin/irtools \
+    FLIRC_UTIL_PATH=/usr/local/bin/flirc_util
 
 # Install dependencies for Flirc tools
 RUN apt-get update && apt-get install -y --no-install-recommends \

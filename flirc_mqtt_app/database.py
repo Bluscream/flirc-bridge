@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from datetime import datetime
+from pathlib import Path
 from typing import Generator, Iterable
 
 from sqlalchemy import (
@@ -73,9 +74,19 @@ class Pattern(Base):
     action = relationship("Action", back_populates="patterns")
 
 
+def _resolved_database_path(raw_path: str) -> Path:
+    path = Path(raw_path).expanduser()
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def get_engine() -> Engine:
     settings = get_settings()
-    return create_engine(f"sqlite:///{settings.database_path}", future=True)
+    db_path = _resolved_database_path(settings.database_path)
+    settings.database_path = str(db_path)
+    return create_engine(f"sqlite:///{db_path}", future=True)
 
 
 engine = get_engine()

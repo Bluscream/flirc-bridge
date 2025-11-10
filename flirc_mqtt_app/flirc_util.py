@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-import shutil
 import subprocess
 from typing import Iterable, Optional
 
@@ -60,7 +59,7 @@ class FlircUtil(FlircTool):
 
     def __init__(self, executable: Optional[str] = None) -> None:
         settings = get_settings()
-        default_exec = executable or shutil.which("flirc_util") or settings.irtools_path.replace("irtools", "flirc_util")
+        default_exec = executable or settings.flirc_util_path
         super().__init__(default_exec)
 
     def help(self, command: Optional[str] = None) -> str:

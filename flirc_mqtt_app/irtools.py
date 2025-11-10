@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 from typing import Iterable, List, Optional
 
 from .config import get_settings
@@ -57,7 +58,18 @@ class IRTools(FlircTool):
         executable: Optional[str] = None,
     ) -> None:
         settings = get_settings()
-        super().__init__(executable or settings.irtools_path)
+        candidate = executable or settings.irtools_path
+        resolved = shutil.which(candidate)
+        if not resolved:
+            fallback = settings.flirc_util_path
+            fallback_resolved = shutil.which(fallback)
+            if fallback_resolved:
+                candidate = fallback_resolved
+            else:
+                candidate = fallback
+        else:
+            candidate = resolved
+        super().__init__(candidate)
 
     def help(self, command: Optional[str] = None) -> str:
         args: List[str] = ["help"]

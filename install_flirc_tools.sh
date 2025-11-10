@@ -33,11 +33,18 @@ if [ "$USE_PKG_MANAGER" = true ] && [ -z "$FORCE_ARCHIVE" ]; then
     
     # Run official installer with -y flag (non-interactive)
     if curl -fsSL "$OFFICIAL_INSTALLER" | bash -s - -y; then
-        echo "==> Installation via package manager successful!"
-        NEW_VERSION=$(flirc_util version 2>/dev/null | head -n1 || echo "unknown")
-        echo "==> Installed version: $NEW_VERSION"
-        echo "==> flirc_util location: $(which flirc_util)"
-        exit 0
+        if command -v flirc_util >/dev/null 2>&1; then
+            echo "==> Installation via package manager successful!"
+            NEW_VERSION=$(flirc_util version 2>/dev/null | head -n1 || echo "unknown")
+            echo "==> Installed version: $NEW_VERSION"
+            echo "==> flirc_util location: $(which flirc_util)"
+            if ! command -v irtools >/dev/null 2>&1; then
+                ln -sf "$(which flirc_util)" "$INSTALL_DIR/irtools"
+                echo "==> Created shim: $INSTALL_DIR/irtools -> flirc_util"
+            fi
+            exit 0
+        fi
+        echo "WARNING: Package manager installer completed but flirc_util is missing; falling back to archive."
     else
         echo "WARNING: Package manager install failed, falling back to archive install"
     fi
@@ -105,6 +112,12 @@ install -m 755 "$FLIRC_UTIL" "$INSTALL_DIR/flirc_util"
 
 if [ -n "$FLIRC_GUI" ]; then
     install -m 755 "$FLIRC_GUI" "$INSTALL_DIR/flirc" 2>/dev/null || true
+fi
+
+# Provide an irtools shim pointing to flirc_util if the dedicated binary is missing.
+if ! command -v irtools >/dev/null 2>&1; then
+    ln -sf "$INSTALL_DIR/flirc_util" "$INSTALL_DIR/irtools"
+    echo "==> Created shim: $INSTALL_DIR/irtools -> flirc_util"
 fi
 
 # Install udev rules if available
