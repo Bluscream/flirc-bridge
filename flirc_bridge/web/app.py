@@ -61,7 +61,7 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
     irtools = runtime.irtools
     flirc_util = runtime.flirc_util
     app = FastAPI(
-        title="Flirc MQTT Bridge",
+        title=f"{settings.mqtt_device_name} - Flirc Bridge",
         version=APP_VERSION,
         default_response_class=JSONResponse,
     )
@@ -176,7 +176,7 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
             "enabled": bool(settings_obj.mqtt_enabled),
             "broker": settings_obj.mqtt_broker,
             "port": settings_obj.mqtt_port,
-            "client_id": settings_obj.mqtt_client_id,
+            "client_id": settings_obj.mqtt_prefix,
             "base_topic": settings_obj.mqtt_base_topic,
             "discovery_prefix": settings_obj.mqtt_discovery_prefix,
             "retain": settings_obj.mqtt_retain,

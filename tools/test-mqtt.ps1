@@ -3,7 +3,7 @@ $ErrorActionPreference = 'Stop'
 
 $TopicFilter = '#'
 $SearchPattern = '*flirc*'
-$TimeoutSeconds = 60
+$TimeoutSeconds = 10
 $OutputFileName = 'mqtt.csv'
 
 function Import-RequiredModule {

@@ -39,7 +39,9 @@ class MQTTManager:
     ) -> None:
         self.settings = settings or get_settings()
         self.irtools = irtools or IRTools()
-        self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, self.settings.mqtt_client_id)
+        self._prefix = self.settings.mqtt_prefix
+        self._safe_prefix = self._prefix.replace("-", "_")
+        self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, self._safe_prefix)
         self.client.enable_logger(logger.getChild("client"))
         self.client.reconnect_delay_set(min_delay=1, max_delay=30)
         if self.settings.mqtt_username and self.settings.mqtt_password:
@@ -59,7 +61,7 @@ class MQTTManager:
             "Connecting to MQTT broker %s:%s as %s",
             self.settings.mqtt_broker,
             self.settings.mqtt_port,
-            self.settings.mqtt_client_id,
+            self._prefix,
         )
         try:
             self.client.connect(
@@ -129,10 +131,10 @@ class MQTTManager:
         return f"{self.settings.mqtt_discovery_prefix}/button"
 
     def _command_prefix(self) -> str:
-        return f"{self._button_prefix()}/{self.settings.mqtt_client_id}_"
+        return f"{self._button_prefix()}/{self._safe_prefix}_"
 
     def _command_topic(self, object_id: str) -> str:
-        return f"{self._button_prefix()}/{self.settings.mqtt_client_id}_{object_id}"
+        return f"{self._button_prefix()}/{self._safe_prefix}_{object_id}"
 
     def _attributes_topic(self, object_id: str) -> str:
         return f"{self._command_topic(object_id)}/attributes"
@@ -145,11 +147,11 @@ class MQTTManager:
             "name": f"{device.name} {action.name}",
             "command_topic": command_topic,
             "payload_press": "PRESS",
-            "unique_id": f"{self.settings.mqtt_client_id}_{object_id}",
+            "unique_id": f"{self._safe_prefix}_{object_id}",
             "device": {
-                "identifiers": [self.settings.mqtt_client_id],
-                "manufacturer": "Flirc MQTT",
-                "name": "Flirc MQTT Bridge",
+                "identifiers": [self._safe_prefix],
+                "manufacturer": "Flirc",
+                "name": self.settings.mqtt_device_name,
             },
             "json_attributes_topic": self._attributes_topic(object_id),
             "json_attributes_template": "{{ value_json | tojson }}",
@@ -264,7 +266,7 @@ class MQTTManager:
 
     def _config_topic(self, device: Device, action: Action) -> str:
         object_id = _slugify(device.name, action.name)
-        return f"{self.settings.mqtt_discovery_prefix}/button/{self.settings.mqtt_client_id}_{object_id}/config"
+        return f"{self.settings.mqtt_discovery_prefix}/button/{self._safe_prefix}_{object_id}/config"
 
 
 def clear_bridge_topics(
@@ -292,7 +294,8 @@ def clear_bridge_topics(
 
     matched_topics: Set[str] = set()
     connected = threading.Event()
-    client_id = f"{settings.mqtt_client_id}-clear-{uuid.uuid4().hex[:8]}"
+    client_prefix = (settings.mqtt_prefix or "flirc_bridge").replace("-", "_")
+    client_id = f"{client_prefix}-clear-{uuid.uuid4().hex[:8]}"
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id)
 
     if settings.mqtt_username and settings.mqtt_password:

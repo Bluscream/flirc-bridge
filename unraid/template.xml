@@ -32,9 +32,14 @@
       <Description>MQTT password (optional)</Description>
     </Variable>
     <Variable>
-      <Name>MQTT_CLIENT_ID</Name>
-      <Value>flirc-bridge</Value>
-      <Description>MQTT client identifier</Description>
+      <Name>MQTT_PREFIX</Name>
+      <Value>flirc_bridge</Value>
+      <Description>MQTT topic prefix and client identifier</Description>
+    </Variable>
+    <Variable>
+      <Name>MQTT_DEVICE_NAME</Name>
+      <Value>Flirc MQTT Bridge</Value>
+      <Description>Friendly instance name shown in MQTT discovery and web UI</Description>
     </Variable>
     <Variable>
       <Name>MQTT_BASE_TOPIC</Name>

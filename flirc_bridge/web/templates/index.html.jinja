@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="utf-8" />
-  <title>Flirc Bridge</title>
+  <title>{{ settings.mqtt_device_name }} - Flirc Bridge</title>
   <link rel="icon" type="image/png" href="https://flirc.tv/cdn/shop/files/Flat_Head_32x32.png" />
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous" />
   <link rel="stylesheet" href="/static/app.css" />
@@ -15,9 +15,9 @@
     <div class="container">
       <div class="d-flex flex-column flex-lg-row gap-3 align-items-lg-center justify-content-between">
         <div>
-          <h1 class="display-6 mb-1 text-white">Flirc Bridge</h1>
+          <h1 class="display-6 mb-1 text-white">{{ settings.mqtt_device_name }}</h1>
           <p class="text-secondary mb-0">
-            MQTT client: {{ settings.mqtt_client_id }} @ {{ settings.mqtt_broker }}:{{ settings.mqtt_port }}
+            MQTT client: {{ settings.mqtt_prefix }} @ {{ settings.mqtt_broker }}:{{ settings.mqtt_port }}
           </p>
         </div>
         {% if not mqtt_available %}

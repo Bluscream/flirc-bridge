@@ -48,7 +48,8 @@ class Settings:
     mqtt_port: int = _int(os.environ.get("MQTT_PORT"), 1883)
     mqtt_username: str | None = os.environ.get("MQTT_USERNAME", "homeassistant")
     mqtt_password: str | None = os.environ.get("MQTT_PASSWORD")
-    mqtt_client_id: str = os.environ.get("MQTT_CLIENT_ID", "flirc-bridge")
+    mqtt_prefix: str = os.environ.get("MQTT_PREFIX") or os.environ.get("MQTT_CLIENT_ID", "flirc_bridge")
+    mqtt_device_name: str = os.environ.get("MQTT_DEVICE_NAME", "Flirc MQTT Bridge")
     mqtt_base_topic: str = os.environ.get("MQTT_BASE_TOPIC", "flirc_bridge")
     mqtt_discovery_prefix: str = os.environ.get("MQTT_DISCOVERY_PREFIX", "homeassistant")
     mqtt_retain: bool = _bool(os.environ.get("MQTT_RETAIN"), True)
@@ -62,6 +63,11 @@ class Settings:
     web_port: int = _int(os.environ.get("WEB_PORT"), 8000)
     web_reload: bool = _bool(os.environ.get("WEB_RELOAD"), False)
     web_token: str | None = os.environ.get("WEB_TOKEN")
+
+    @property
+    def mqtt_client_id(self) -> str:
+        """Backwards compatible alias for the MQTT prefix."""
+        return self.mqtt_prefix
 
 
 def get_settings() -> Settings:

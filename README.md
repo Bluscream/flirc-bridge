@@ -42,26 +42,27 @@ This project recreates the functionality of the `breeily/flirc_bridge` container
 
 Environment variables (defaults shown):
 
-| Variable                | Default         | Description                                  |
-| ----------------------- | --------------- | -------------------------------------------- |
-| `DB_PATH`               | `patterns.db`   | SQLite database location                     |
-| `IRTOOLS_PATH`          | `irtools`       | Executable used for IR send/listen           |
-| `MQTT_BROKER`           | `localhost`     | MQTT broker address                          |
-| `MQTT_PORT`             | `1883`          | MQTT broker port                             |
-| `MQTT_USERNAME`         | `homeassistant` | MQTT username                                |
-| `MQTT_PASSWORD`         | _(unset)_       | MQTT password                                |
-| `MQTT_CLIENT_ID`        | `flirc-bridge`  | MQTT client identifier                       |
-| `MQTT_BASE_TOPIC`       | `flirc_bridge`  | Base MQTT topic                              |
-| `MQTT_DISCOVERY_PREFIX` | `homeassistant` | Discovery prefix                             |
-| `MQTT_RETAIN`           | `true`          | Retain discovery messages                    |
-| `MQTT_ENABLED`          | `true`          | Disable to run the web UI without MQTT       |
-| `AUTO_STORE_PATTERNS`   | `false`         | Automatically persist received patterns      |
-| `WEB_ENABLED`           | `true`          | Disable to run headless (MQTT-only) mode     |
-| `WEB_TOKEN`             | _(unset)_       | If set, required for add/edit/delete actions |
-| `WEB_HOST`              | `0.0.0.0`       | Web server bind address                      |
-| `WEB_PORT`              | `8000`          | Web server port                              |
-| `WEB_RELOAD`            | `false`         | Enable auto-reload (development)             |
-| `IR_LISTEN_TIMEOUT`     | `10`            | Default listen timeout                       |
+| Variable                | Default             | Description                                                    |
+| ----------------------- | ------------------- | -------------------------------------------------------------- |
+| `DB_PATH`               | `patterns.db`       | SQLite database location                                       |
+| `IRTOOLS_PATH`          | `irtools`           | Executable used for IR send/listen                             |
+| `MQTT_BROKER`           | `localhost`         | MQTT broker address                                            |
+| `MQTT_PORT`             | `1883`              | MQTT broker port                                               |
+| `MQTT_USERNAME`         | `homeassistant`     | MQTT username                                                  |
+| `MQTT_PASSWORD`         | _(unset)_           | MQTT password                                                  |
+| `MQTT_PREFIX`           | `flirc_bridge`      | MQTT topic prefix and discovery identifier                     |
+| `MQTT_DEVICE_NAME`      | `Flirc MQTT Bridge` | Friendly instance name used in MQTT device metadata and web UI |
+| `MQTT_BASE_TOPIC`       | `flirc_bridge`      | Base MQTT topic                                                |
+| `MQTT_DISCOVERY_PREFIX` | `homeassistant`     | Discovery prefix                                               |
+| `MQTT_RETAIN`           | `true`              | Retain discovery messages                                      |
+| `MQTT_ENABLED`          | `true`              | Disable to run the web UI without MQTT                         |
+| `AUTO_STORE_PATTERNS`   | `false`             | Automatically persist received patterns                        |
+| `WEB_ENABLED`           | `true`              | Disable to run headless (MQTT-only) mode                       |
+| `WEB_TOKEN`             | _(unset)_           | If set, required for add/edit/delete actions                   |
+| `WEB_HOST`              | `0.0.0.0`           | Web server bind address                                        |
+| `WEB_PORT`              | `8000`              | Web server port                                                |
+| `WEB_RELOAD`            | `false`             | Enable auto-reload (development)                               |
+| `IR_LISTEN_TIMEOUT`     | `10`                | Default listen timeout                                         |
 
 Set `MQTT_ENABLED=false` if you only need the REST/web components (for example when an MQTT broker is not available yet).  
 Set `WEB_ENABLED=false` to run the bridge without starting the FastAPI server; MQTT and database services remain active.
@@ -79,6 +80,7 @@ MQTT_BROKER=192.168.2.4
 MQTT_PORT=1883
 MQTT_USERNAME=homeassistant
 MQTT_PASSWORD=super_secret
+MQTT_DEVICE_NAME=Living Room Bridge
 "@ | Out-File -Encoding utf8 .env
 
 # Run in foreground (Ctrl+C to stop)
