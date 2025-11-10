@@ -213,11 +213,11 @@ class MQTTManager:
     def clear_discovery(self, device: Device, action: Action) -> None:
         object_id = _slugify(device.name, action.name)
         config_topic = self._config_topic_for_object_id(object_id)
-        self.client.publish(config_topic, "", retain=False)
+        self.client.publish(config_topic, "", retain=True)
         self.client.publish(
             self._attributes_topic(object_id),
             "",
-            retain=False,
+            retain=True,
         )
         command_topic = self._command_topic(object_id)
         with self._lock:
@@ -238,8 +238,8 @@ class MQTTManager:
             config_topic = self._config_topic_for_object_id(object_id)
             attributes_topic = self._attributes_topic(object_id)
             try:
-                self.client.publish(config_topic, "", retain=False)
-                self.client.publish(attributes_topic, "", retain=False)
+                self.client.publish(config_topic, "", retain=True)
+                self.client.publish(attributes_topic, "", retain=True)
             except Exception as exc:  # pragma: no cover - defensive
                 logger.warning("Failed to unpublish discovery topic %s: %s", config_topic, exc)
 
