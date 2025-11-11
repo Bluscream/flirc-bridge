@@ -1,11 +1,19 @@
 from __future__ import annotations
 
 import logging
+from contextlib import suppress
 
 import uvicorn
 
 from flirc_bridge.application import BridgeRuntime
 from flirc_bridge.config import get_settings
+
+
+def _block_until_shutdown(runtime: BridgeRuntime) -> None:
+    """Mimic the legacy wait_forever behaviour using await_shutdown."""
+    with suppress(KeyboardInterrupt):
+        while not runtime.await_shutdown(timeout=1.0):
+            continue
 
 
 def main() -> None:
@@ -15,7 +23,7 @@ def main() -> None:
 
     if not settings.web_enabled:
         logging.info("Web interface disabled; running without FastAPI server")
-        runtime.wait_forever()
+        _block_until_shutdown(runtime)
         return
 
     try:
@@ -24,17 +32,20 @@ def main() -> None:
         app = create_app(runtime=runtime)
     except Exception as exc:
         logging.exception("Failed to initialize web interface: %s", exc)
-        runtime.wait_forever()
+        _block_until_shutdown(runtime)
         return
 
-    uvicorn.run(
-        app,
-        host=settings.web_host,
-        port=settings.web_port,
-        reload=settings.web_reload,
-        log_level="info",
-        log_config=None,
-    )
+    try:
+        uvicorn.run(
+            app,
+            host=settings.web_host,
+            port=settings.web_port,
+            reload=settings.web_reload,
+            log_level="info",
+            log_config=None,
+        )
+    finally:
+        runtime.stop()
 
 
 if __name__ == "__main__":

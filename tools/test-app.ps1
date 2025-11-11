@@ -100,30 +100,79 @@ function ConvertTo-JsonString {
     return ($Object | ConvertTo-Json -Depth 8 -Compress)
 }
 
+function Get-DynamicPropertyValue {
+    param(
+        [Parameter(Mandatory)] $Object,
+        [Parameter(Mandatory)] [string]$Name
+    )
+
+    if ($null -eq $Object) {
+        return $null
+    }
+
+    if ($Object -is [System.Collections.IDictionary]) {
+        if ($Object.Contains($Name)) {
+            return $Object[$Name]
+        }
+        return $null
+    }
+
+    $prop = $Object.PSObject.Properties[$Name]
+    if ($prop) {
+        return $prop.Value
+    }
+
+    return $null
+}
+
 function Invoke-AppRequest {
     param(
         [Parameter(Mandatory)] [string]$Method,
         [Parameter(Mandatory)] [string]$Path,
-        [hashtable]$Body
+        [object]$Body
     )
 
     $methodEnum = [System.Enum]::Parse([Microsoft.PowerShell.Commands.WebRequestMethod], $Method, $true)
     $uri = "{0}{1}" -f $script:NormalizedBaseUrl, $Path
-    $params = @{
-        Uri         = $uri
-        Method      = $methodEnum
-        ContentType = 'application/json'
-    }
-    if ($Body) {
-        $jsonBody = ConvertTo-JsonString -Object $Body
-        $params.Body = $jsonBody
-        Write-Verbose ("HTTP {0} {1} -> {2}" -f $methodEnum, $uri, $jsonBody)
-    }
-    else {
+
+    if ($methodEnum -eq [Microsoft.PowerShell.Commands.WebRequestMethod]::Get) {
+        $params = @{
+            Uri         = $uri
+            Method      = $methodEnum
+            ContentType = 'application/json'
+        }
         Write-Verbose ("HTTP {0} {1}" -f $methodEnum, $uri)
+        return Invoke-RestMethod @params
     }
 
-    return Invoke-RestMethod @params
+    $testScript = Join-Path $repoRoot "tools\test.ps1"
+    $testParams = @{
+        Endpoint    = $uri
+        Method      = $methodEnum
+        ContentType = 'application/json'
+        Quiet       = $true
+    }
+    if ($Body) {
+        $testParams.Body = $Body
+        Write-Verbose ("HTTP {0} {1} -> {2}" -f $methodEnum, $uri, (ConvertTo-JsonString -Object $Body))
+    }
+    else {
+        Write-Verbose ("HTTP {0} {1} (no body)" -f $methodEnum, $uri)
+    }
+
+    $result = & $testScript @testParams
+    if ($null -ne $result.Json) {
+        return $result.Json
+    }
+    if ($result.RawContent) {
+        try {
+            return $result.RawContent | ConvertFrom-Json -Depth 16
+        }
+        catch {
+            return $result.RawContent
+        }
+    }
+    return $null
 }
 
 function New-TestName {
@@ -239,9 +288,12 @@ try {
     if (-not $customSendResponse.results) {
         throw "Custom send returned no results"
     }
-    $savedPatternEntry = $customSendResponse.results | Where-Object { $_.saved_pattern_id } | Select-Object -First 1
-    if ($savedPatternEntry) {
-        $savedPatternId = $savedPatternEntry.saved_pattern_id
+    foreach ($entry in @($customSendResponse.results)) {
+        $candidateId = Get-DynamicPropertyValue -Object $entry -Name "saved_pattern_id"
+        if ($candidateId) {
+            $savedPatternId = $candidateId
+            break
+        }
     }
 
     Write-Step "Updating test pattern"
