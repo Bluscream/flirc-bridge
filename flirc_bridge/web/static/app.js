@@ -155,7 +155,87 @@ async function sendPattern(device, action) {
   }
 }
 
+async function sendPatternFormat(device, action, formatName) {
+  const deviceEntry = patternsData?.[device];
+  if (!deviceEntry) {
+    showToast(`No patterns found for device ${device}`, "warning");
+    return;
+  }
+  const actionEntry = deviceEntry?.[action];
+  if (!actionEntry) {
+    showToast(`No action ${action} for device ${device}`, "warning");
+    return;
+  }
+  const formatEntry = actionEntry?.[formatName];
+  if (!formatEntry) {
+    showToast(`No format ${formatName} for ${device}/${action}`, "warning");
+    return;
+  }
+
+  const values =
+    formatEntry &&
+    typeof formatEntry === "object" &&
+    !Array.isArray(formatEntry)
+      ? formatEntry.data
+      : formatEntry;
+
+  if (!values) {
+    showToast(
+      `Pattern data missing for ${device}/${action} (${formatName})`,
+      "warning"
+    );
+    return;
+  }
+
+  const normalizedData = Array.isArray(values)
+    ? values.map((item) => String(item))
+    : [String(values)];
+
+  const payload = {
+    format: (formatName || "").toLowerCase(),
+    data: normalizedData,
+  };
+
+  let headers = buildHeaders({ "Content-Type": "application/json" });
+  if (requiresToken && headers === null) {
+    return;
+  }
+  headers = headers || { "Content-Type": "application/json" };
+
+  try {
+    const response = await fetch("/api/send", {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      if (!(await handleAuthResponse(response))) {
+        return;
+      }
+      const data = await response.json().catch(() => ({}));
+      showToast(
+        `Failed to send ${device}/${action} (${formatName}): ` +
+          (data.detail || response.statusText),
+        "danger",
+        5000
+      );
+    } else {
+      showToast(`Sent ${device}/${action} (${formatName})`, "success", 2500);
+    }
+  } catch (error) {
+    showToast(
+      `Failed to send ${device}/${action} (${formatName}): ${error}`,
+      "danger",
+      5000
+    );
+  }
+}
+
 function editPattern(device, action) {
+  if (!patternsData[device] || !patternsData[device][action]) {
+    showToast(`Pattern ${device}/${action} not found`, "warning");
+    return;
+  }
   document.getElementById("device").value = device;
   document.getElementById("action").value = action;
   const formats = patternsData[device][action];
@@ -175,10 +255,7 @@ function editPattern(device, action) {
     null,
     2
   );
-  const form = patternForm || document.getElementById("pattern-form");
-  if (form) {
-    window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
-  }
+  window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
 }
 
 async function deleteAction(device, action) {
@@ -248,6 +325,50 @@ async function deleteDevice(device) {
     }
   }
   window.location.reload();
+}
+
+async function deletePatternFormat(device, action, formatName) {
+  if (!confirm(`Delete ${formatName} format for ${device}/${action}?`)) {
+    return;
+  }
+  let headers = buildHeaders({ "Content-Type": "application/json" });
+  if (requiresToken && headers === null) {
+    return;
+  }
+  headers = headers || { "Content-Type": "application/json" };
+
+  try {
+    const response = await fetch(
+      `/api/patterns/${encodeURIComponent(device)}/${encodeURIComponent(
+        action
+      )}/${encodeURIComponent(formatName)}`,
+      {
+        method: "DELETE",
+        headers,
+      }
+    );
+    if (!response.ok) {
+      if (!(await handleAuthResponse(response))) {
+        return;
+      }
+      const data = await response.json().catch(() => ({}));
+      showToast(
+        `Failed to delete ${device}/${action} (${formatName}): ` +
+          (data.detail || response.statusText),
+        "danger",
+        5000
+      );
+      return;
+    }
+    showToast(`Deleted ${device}/${action} (${formatName})`, "success", 2500);
+    window.location.reload();
+  } catch (error) {
+    showToast(
+      `Failed to delete ${device}/${action} (${formatName}): ${error}`,
+      "danger",
+      5000
+    );
+  }
 }
 
 function detectFormatFromValue(value) {
@@ -366,9 +487,11 @@ if (patternForm) {
 }
 
 window.sendPattern = sendPattern;
+window.sendPatternFormat = sendPatternFormat;
 window.editPattern = editPattern;
 window.deleteAction = deleteAction;
 window.deleteDevice = deleteDevice;
+window.scrollToAddPattern = scrollToAddPattern;
 
 function scrollToAddPattern() {
   window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });

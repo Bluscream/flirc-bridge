@@ -12,7 +12,7 @@ This project recreates the functionality of the `breeily/flirc_bridge` container
 
 | Main Page | /manage | /status |
 |----------|----------|----------|
-| ![](https://files.catbox.moe/a1h1sm.png) | ![](https://files.catbox.moe/1vd3oq.png)  | ![](https://files.catbox.moe/pkz176.png)  |
+| ![](https://files.catbox.moe/a1h1sm.png) | ![](https://files.catbox.moe/1vd3oq.png)  | ![](https://files.catbox.moe/pkz176.png) |
 
 
 ## Features

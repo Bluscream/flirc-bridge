@@ -50,11 +50,11 @@
           <td class="text-secondary align-middle text-uppercase">{{ format_name }}</td>
           <td class="text-end align-middle">
             <div class="btn-group btn-group-sm" role="group">
-              <button type="button" class="btn btn-outline-success" onclick='sendPattern({{ device|tojson }}, {{ action|tojson }})'>
+              <button type="button" class="btn btn-outline-success" title="Send {{ format_name }} pattern" onclick='sendPatternFormat({{ device|tojson }}, {{ action|tojson }}, {{ format_name|tojson }})'>
                 Send
               </button>
               <button type="button" class="btn btn-outline-light" onclick='editPattern({{ device|tojson }}, {{ action|tojson }})'>Edit</button>
-              <button type="button" class="btn btn-outline-danger" onclick='deleteAction({{ device|tojson }}, {{ action|tojson }})'>Delete</button>
+              <button type="button" class="btn btn-outline-danger" onclick='deletePatternFormat({{ device|tojson }}, {{ action|tojson }}, {{ format_name|tojson }})'>Delete</button>
             </div>
           </td>
         </tr>

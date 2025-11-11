@@ -170,6 +170,44 @@ def iter_patterns(session: Session) -> Iterable[tuple[Device, Action, Pattern]]:
                 yield device, action, pattern
 
 
+def remove_pattern_format(session: Session, device_name: str, action_name: str, format_name: str) -> bool:
+    pattern: Pattern | None = (
+        session.query(Pattern)
+        .join(Action)
+        .join(Device)
+        .filter(
+            Device.name == device_name,
+            Action.name == action_name,
+            Pattern.format == format_name,
+        )
+        .one_or_none()
+    )
+    if not pattern:
+        return False
+
+    action_id = pattern.action_id
+    action = session.query(Action).get(action_id)
+    device_id = action.device_id if action else None
+
+    session.delete(pattern)
+    session.flush()
+
+    remaining_for_action = session.query(Pattern).filter(Pattern.action_id == action_id).count()
+    if remaining_for_action == 0 and action:
+        session.delete(action)
+        session.flush()
+
+    if device_id is not None:
+        remaining_actions = session.query(Action).filter(Action.device_id == device_id).count()
+        if remaining_actions == 0:
+            device = session.query(Device).get(device_id)
+            if device:
+                session.delete(device)
+                session.flush()
+
+    return True
+
+
 __all__ = [
     "Action",
     "Device",
@@ -179,5 +217,6 @@ __all__ = [
     "get_session",
     "upsert_pattern",
     "remove_action",
+    "remove_pattern_format",
     "iter_patterns",
 ]

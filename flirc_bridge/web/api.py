@@ -23,7 +23,7 @@ from ..schemas import (
     ReceivePatternResponse,
     SendPatternRequest,
 )
-from ..services import delete_pattern, export_patterns, pattern_record_to_db
+from ..services import delete_pattern, delete_pattern_format, export_patterns, pattern_record_to_db
 from ..tool import (
     FlircUtil,
     FlircUtilError,
@@ -239,6 +239,17 @@ def create_api_router(
             removed = delete_pattern(session, device, action, mqtt=state["mqtt"])
         if not removed:
             raise HTTPException(status_code=404, detail="Pattern not found")
+        return {"status": "deleted"}
+
+    @router.delete(
+        "/api/patterns/{device}/{action}/{format_name}",
+        response_model=dict,
+    )
+    def remove_pattern_format(device: str, action: str, format_name: str, state=Depends(get_app_state), _: None = Depends(require_auth)):
+        with get_session() as session:
+            removed = delete_pattern_format(session, device, action, format_name, mqtt=state["mqtt"])
+        if not removed:
+            raise HTTPException(status_code=404, detail="Pattern format not found")
         return {"status": "deleted"}
 
     @router.post(

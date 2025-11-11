@@ -61,6 +61,42 @@ def delete_pattern(
     return database.remove_action(session, device_name, action_name)
 
 
+def delete_pattern_format(
+    session: Session,
+    device_name: str,
+    action_name: str,
+    format_name: str,
+    mqtt: MQTTManager | None = None,
+) -> bool:
+    action = None
+    device = None
+    remaining_before = 0
+    if mqtt:
+        action = (
+            session.query(database.Action)
+            .join(database.Device)
+            .filter(database.Device.name == device_name, database.Action.name == action_name)
+            .one_or_none()
+        )
+        if action:
+            device = action.device
+            remaining_before = (
+                session.query(database.Pattern)
+                .filter(database.Pattern.action_id == action.id)
+                .count()
+            )
+    removed = database.remove_pattern_format(session, device_name, action_name, format_name)
+    if not removed:
+        return False
+
+    if mqtt and action and device:
+        if remaining_before <= 1:
+            mqtt.clear_discovery(device, action)
+        else:
+            mqtt.refresh_action(device, action)
+    return True
+
+
 def export_patterns(session: Session) -> Dict[str, Dict[str, Dict[str, List[str]]]]:
     export: Dict[str, Dict[str, Dict[str, List[str]]]] = {}
     for device, action, pattern in database.iter_patterns(session):
