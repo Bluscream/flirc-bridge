@@ -444,14 +444,193 @@ def create_api_router(
             "cached_at": tool_cache.get("generated_at"),
         }
 
-    @router.get(
-        "/api/patterns",
-        response_model=PatternListResponse,
-        summary="Return all stored patterns as JSON structure",
+    @router.api_route(
+        "/api/pattern",
+        methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+        summary="Unified pattern management endpoint",
     )
-    def get_patterns_json():
+    def pattern_endpoint(
+        request: Request,
+        payload: Optional[PatternRecord] = Body(None),
+        state=Depends(get_app_state),
+    ):
+        method_override = request.query_params.get("method")
+        effective_method = (
+            method_override.strip().upper()
+            if method_override
+            else request.method.upper()
+        )
+
+        if effective_method not in {"GET", "POST", "PUT", "PATCH", "DELETE"}:
+            raise HTTPException(
+                status_code=status.HTTP_405_METHOD_NOT_ALLOWED,
+                detail=f"method '{effective_method}' is not supported",
+            )
+
+        device_id = request.query_params.get("device")
+        action_id = request.query_params.get("action")
+        pattern_id = request.query_params.get("pattern")
+
+        if effective_method == "GET":
+            with get_session() as session:
+                if pattern_id:
+                    pattern = session.get(Pattern, pattern_id)
+                    if not pattern:
+                        raise HTTPException(status_code=404, detail="Pattern not found")
+                    action = pattern.action or session.get(Action, pattern.action_id)
+                    if not action:
+                        raise HTTPException(status_code=404, detail="Action not found")
+                    if device_id and action.device_id != device_id:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="Pattern does not belong to specified device",
+                        )
+                    record = build_pattern_record(action)
+                    record.patterns = [
+                        pattern_model
+                        for pattern_model in record.patterns
+                        if pattern_model.id == pattern_id
+                    ]
+                    if not record.patterns:
+                        raise HTTPException(status_code=404, detail="Pattern not found")
+                    return record.model_dump()
+
+                if action_id:
+                    action = session.get(Action, action_id)
+                    if not action:
+                        raise HTTPException(status_code=404, detail="Action not found")
+                    if device_id and action.device_id != device_id:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="Action does not belong to specified device",
+                        )
+                    action_response = build_action_response(action)
+                    return action_response.model_dump()
+
+                if device_id:
+                    device = session.get(Device, device_id)
+                    if not device:
+                        raise HTTPException(status_code=404, detail="Device not found")
+                    device_response = build_device_response(device)
+                    return device_response.model_dump()
+
+                return export_patterns(session)
+
+        # Authorization required for mutating operations
+        require_auth(
+            request=request,
+            header_token=request.headers.get("X-Auth-Token"),
+        )
+
+        if effective_method == "POST":
+            if payload is None or not payload.patterns:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Pattern payload is required",
+                )
+            with get_session() as session:
+                saved_patterns = pattern_record_to_db(session, payload, mqtt=state["mqtt"])
+                if not saved_patterns:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="No pattern data provided",
+                    )
+                action = saved_patterns[-1].action or session.get(
+                    Action, saved_patterns[-1].action_id
+                )
+                return build_pattern_record(action)
+
+        if effective_method in {"PUT", "PATCH"}:
+            if payload is None or not payload.patterns:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="At least one pattern entry is required",
+                )
+            primary = payload.patterns[0]
+            target_pattern_id = pattern_id or getattr(primary, "id", None)
+            if not target_pattern_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Pattern identifier is required for updates",
+                )
+            primary.id = target_pattern_id
+            with get_session() as session:
+                saved_patterns = pattern_record_to_db(session, payload, mqtt=state["mqtt"])
+                action = saved_patterns[-1].action or session.get(
+                    Action, saved_patterns[-1].action_id
+                )
+                return build_pattern_record(action)
+
+        # DELETE handling (pattern/action/device hierarchy)
+        if not any([pattern_id, action_id, device_id]):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Deletion requires a pattern, action, or device identifier",
+            )
+
         with get_session() as session:
-            return export_patterns(session)
+            mqtt_manager: Optional[MQTTManager] = state["mqtt"]
+
+            if pattern_id:
+                pattern = session.get(Pattern, pattern_id)
+                if not pattern:
+                    raise HTTPException(status_code=404, detail="Pattern not found")
+                if action_id and pattern.action_id != action_id:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Pattern does not belong to specified action",
+                    )
+                if device_id:
+                    action = pattern.action
+                    if not action or action.device_id != device_id:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="Pattern does not belong to specified device",
+                        )
+                deleted = delete_pattern(session, pattern_id, mqtt=mqtt_manager)
+                if not deleted:
+                    raise HTTPException(status_code=404, detail="Pattern not found")
+                return {
+                    "status": "deleted",
+                    "scope": "pattern",
+                    "pattern_id": pattern_id,
+                }
+
+            if action_id:
+                action = session.get(Action, action_id)
+                if not action:
+                    raise HTTPException(status_code=404, detail="Action not found")
+                if device_id and action.device_id != device_id:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Action does not belong to specified device",
+                    )
+                deleted = delete_action(session, action_id, mqtt=mqtt_manager)
+                if not deleted:
+                    raise HTTPException(status_code=404, detail="Action not found")
+                return {
+                    "status": "deleted",
+                    "scope": "action",
+                    "action_id": action_id,
+                }
+
+            if device_id:
+                device = session.get(Device, device_id)
+                if not device:
+                    raise HTTPException(status_code=404, detail="Device not found")
+                deleted = delete_device(session, device_id, mqtt=mqtt_manager)
+                if not deleted:
+                    raise HTTPException(status_code=404, detail="Device not found")
+                return {
+                    "status": "deleted",
+                    "scope": "device",
+                    "device_id": device_id,
+                }
+
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unsupported parameter combination for deletion",
+        )
 
     @router.post(
         "/api/mqtt/publish",
@@ -544,7 +723,7 @@ def create_api_router(
             if not device and payload.device_name:
                 device = create_device(session, name=payload.device_name, description="")
             if not device:
-                device = create_device(session, name=payload.device_name or UNKNOWN_NAME, description="")
+                device = create_device(session, name=payload.device_name, description="")
             action = create_action(
                 session,
                 device=device,
@@ -592,61 +771,6 @@ def create_api_router(
             removed = delete_action(session, action_id, mqtt=state["mqtt"])
         if not removed:
             raise HTTPException(status_code=404, detail="Action not found")
-        return {"status": "deleted"}
-
-    @router.post(
-        "/api/patterns",
-        response_model=PatternRecord,
-        status_code=status.HTTP_201_CREATED,
-    )
-    def create_pattern(
-        record: PatternRecord,
-        state=Depends(get_app_state),
-        _: None = Depends(require_auth),
-    ):
-        with get_session() as session:
-            saved_patterns = pattern_record_to_db(session, record, mqtt=state["mqtt"])
-            if not saved_patterns:
-                raise HTTPException(status_code=400, detail="No pattern data provided")
-            action = saved_patterns[-1].action or session.get(Action, saved_patterns[-1].action_id)
-            response = build_pattern_record(action)
-        return response
-
-    @router.put(
-        "/api/patterns/{pattern_id}",
-        response_model=PatternRecord,
-    )
-    def update_pattern(
-        pattern_id: str,
-        record: PatternRecord,
-        state=Depends(get_app_state),
-        _: None = Depends(require_auth),
-    ):
-        if not record.patterns:
-            raise HTTPException(status_code=400, detail="At least one pattern is required")
-        primary = record.patterns[0]
-        if primary.id and primary.id != pattern_id:
-            raise HTTPException(status_code=400, detail="Pattern ID mismatch")
-        primary.id = pattern_id
-        with get_session() as session:
-            saved_patterns = pattern_record_to_db(session, record, mqtt=state["mqtt"])
-            action = saved_patterns[-1].action or session.get(Action, saved_patterns[-1].action_id)
-            response = build_pattern_record(action)
-        return response
-
-    @router.delete(
-        "/api/patterns/{pattern_id}",
-        response_model=dict,
-    )
-    def remove_pattern(
-        pattern_id: str,
-        state=Depends(get_app_state),
-        _: None = Depends(require_auth),
-    ):
-        with get_session() as session:
-            removed = delete_pattern(session, pattern_id, mqtt=state["mqtt"])
-        if not removed:
-            raise HTTPException(status_code=404, detail="Pattern not found")
         return {"status": "deleted"}
 
     @router.api_route(

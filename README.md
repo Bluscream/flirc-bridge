@@ -20,10 +20,10 @@ This project recreates the functionality of the `breeily/flirc_bridge` container
 - **Pattern management UI** – visit `/` to view and manage stored devices, actions, and individual patterns (with Send/Edit/Delete controls).
 - **REST API** (all endpoints accept query-string or JSON body parameters; body values take precedence):
   - `GET /api/status` – runtime status, tool versions, and configuration summary.
-  - `GET /api/patterns.json` – export all devices/actions/patterns as JSON.
+- `GET /api/pattern` – export all devices/actions/patterns as JSON.
   - `POST /api/devices`, `PUT /api/devices/{device_id}`, `DELETE /api/devices/{device_id}` – manage devices.
   - `POST /api/actions`, `PUT /api/actions/{action_id}`, `DELETE /api/actions/{action_id}` – manage actions (linked to devices).
-  - `POST /api/patterns`, `PUT /api/patterns/{pattern_id}`, `DELETE /api/patterns/{pattern_id}` – manage individual patterns.
+  - `POST /api/pattern`, `PUT /api/pattern?pattern={pattern_id}`, `DELETE /api/pattern?pattern={pattern_id}` – manage individual patterns (use `device` / `action` params with DELETE to clear wider scopes).
   - `POST /api/send` (also responds to GET/PUT/PATCH/DELETE) – transmit stored patterns (by action/pattern UUID) or custom payloads. Set `save=1` to store custom payloads.
   - `POST /api/receive` – capture a pattern using `irtools listen` (optionally save it).
 - **MQTT integration** – publishes Home Assistant discovery buttons for every action and, when pressed, sends all patterns assigned to that action (in order). Also listens for custom payloads on:
@@ -206,7 +206,7 @@ curl -X POST http://localhost:8000/api/actions \
 ### Add a pattern to that action
 
 ```bash
-curl -X POST http://localhost:8000/api/patterns \
+curl -X POST http://localhost:8000/api/pattern \
   -H "Content-Type: application/json" \
   -d '{
     "device_id": "DEVICE_UUID_FROM_PREVIOUS_STEP",
@@ -273,7 +273,7 @@ This will listen with `irtools`, store the result in SQLite, and immediately exp
 ### Export the full pattern catalogue
 
 ```bash
-curl http://localhost:8000/api/patterns.json
+curl http://localhost:8000/api/pattern
 ```
 
 Sample response (truncated):

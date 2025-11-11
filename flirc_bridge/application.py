@@ -8,7 +8,7 @@ from typing import Optional
 
 from .config import Settings, get_settings
 from .logging import configure_logging
-from .database import Device, get_session, init_db
+from .database import Action, Device, Pattern, get_session, init_db
 from .tool import (
     FlircUtil,
     IRTools,
@@ -71,6 +71,17 @@ class BridgeRuntime:
                     ),
                     sort_keys=True,
                 ),
+            )
+
+            with get_session() as session:
+                device_count = session.query(Device).count()
+                action_count = session.query(Action).count()
+                pattern_count = session.query(Pattern).count()
+            logger.info(
+                "Database inventory: devices=%s actions=%s patterns=%s",
+                device_count,
+                action_count,
+                pattern_count,
             )
 
             initialize_tools()

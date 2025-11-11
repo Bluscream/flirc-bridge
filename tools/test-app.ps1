@@ -256,7 +256,7 @@ try {
             }
         )
     }
-    $patternResponse = Invoke-AppRequest -Method Post -Path "/api/patterns" -Body $patternPayload
+    $patternResponse = Invoke-AppRequest -Method Post -Path "/api/pattern" -Body $patternPayload
     if (-not $patternResponse.patterns) {
         throw "Pattern creation failed"
     }
@@ -311,7 +311,7 @@ try {
             }
         )
     }
-    [void](Invoke-AppRequest -Method Put -Path ("/api/patterns/{0}" -f $patternId) -Body $updatePatternPayload)
+    [void](Invoke-AppRequest -Method Put -Path ("/api/pattern?pattern={0}" -f $patternId) -Body $updatePatternPayload)
 
     Write-Step "Updating action"
     $updatedActionPayload = @{
@@ -369,13 +369,13 @@ try {
 
     if ($savedPatternId) {
         Write-Step "Deleting saved custom pattern"
-        [void](Invoke-AppRequest -Method Delete -Path ("/api/patterns/{0}" -f $savedPatternId))
+        [void](Invoke-AppRequest -Method Delete -Path ("/api/pattern?pattern={0}" -f $savedPatternId))
         $savedPatternId = $null
     }
 
     if ($patternId) {
         Write-Step "Deleting primary test pattern"
-        [void](Invoke-AppRequest -Method Delete -Path ("/api/patterns/{0}" -f $patternId))
+        [void](Invoke-AppRequest -Method Delete -Path ("/api/pattern?pattern={0}" -f $patternId))
         $patternId = $null
     }
 
@@ -399,10 +399,10 @@ catch {
 }
 finally {
     if ($savedPatternId) {
-        try { [void](Invoke-AppRequest -Method Delete -Path ("/api/patterns/{0}" -f $savedPatternId)) } catch {}
+        try { [void](Invoke-AppRequest -Method Delete -Path ("/api/pattern?pattern={0}" -f $savedPatternId)) } catch {}
     }
     if ($patternId) {
-        try { [void](Invoke-AppRequest -Method Delete -Path ("/api/patterns/{0}" -f $patternId)) } catch {}
+        try { [void](Invoke-AppRequest -Method Delete -Path ("/api/pattern?pattern={0}" -f $patternId)) } catch {}
     }
     if ($actionId) {
         try { [void](Invoke-AppRequest -Method Delete -Path ("/api/actions/{0}" -f $actionId)) } catch {}

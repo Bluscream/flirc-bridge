@@ -18,7 +18,6 @@ from sqlalchemy import (
     UniqueConstraint,
     create_engine,
     func,
-    inspect,
     text,
 )
 from sqlalchemy.engine import Engine, make_url
@@ -39,12 +38,6 @@ class PatternFormatEnum(str, enum.Enum):
     RAW = "raw"
     CSV = "csv"
     PRONTO = "pronto"
-
-
-UNKNOWN_DEVICE_ID = "00000000-0000-0000-0000-000000000000"
-UNKNOWN_ACTION_ID = "00000000-0000-0000-0000-000000000001"
-UNKNOWN_NAME = "Unknown"
-UNKNOWN_DESCRIPTION = "Default entity used when device or action is unspecified."
 
 
 class Device(Base):
@@ -137,9 +130,7 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
 def init_db() -> None:
-    _migrate_legacy_schema()
     Base.metadata.create_all(bind=engine)
-    _ensure_unknown_entities()
 
 
 @contextmanager
@@ -297,146 +288,6 @@ def iter_patterns(session: Session) -> Iterable[Tuple[Device, Action, Pattern]]:
                 yield device, action, pattern
 
 
-# region LegacyMigration
-def _migrate_legacy_schema() -> None:
-    inspector = inspect(engine)
-    table_names = inspector.get_table_names()
-    if "devices" not in table_names or "actions" not in table_names or "patterns" not in table_names:
-        return
-
-    device_columns = inspector.get_columns("devices")
-    if not device_columns:
-        return
-
-    first_col_type = device_columns[0]["type"].__class__.__name__.lower()
-    if "integer" not in first_col_type:
-        # Already on new schema
-        return
-
-    with engine.begin() as connection:
-        connection.execute(text("ALTER TABLE patterns RENAME TO patterns_legacy"))
-        connection.execute(text("ALTER TABLE actions RENAME TO actions_legacy"))
-        connection.execute(text("ALTER TABLE devices RENAME TO devices_legacy"))
-
-    Base.metadata.create_all(bind=engine)
-
-    with SessionLocal() as session, session.begin():
-        legacy_devices = session.execute(
-            text("SELECT id, name FROM devices_legacy ORDER BY id")
-        ).all()
-        legacy_actions = session.execute(
-            text("SELECT id, device_id, name FROM actions_legacy ORDER BY id")
-        ).all()
-        legacy_patterns = session.execute(
-            text(
-                "SELECT id, action_id, format, data, hash, repeat, ik, created_at, updated_at, NULL as sent_at "
-                "FROM patterns_legacy ORDER BY id"
-            )
-        ).all()
-
-        device_map: Dict[int, Device] = {}
-        for legacy_id, name in legacy_devices:
-            clean_name = name or UNKNOWN_NAME
-            if clean_name.strip().lower() == UNKNOWN_NAME.lower():
-                device = create_device(
-                    session,
-                    name=UNKNOWN_NAME,
-                    description=UNKNOWN_DESCRIPTION,
-                    device_id=UNKNOWN_DEVICE_ID,
-                )
-            else:
-                device = create_device(session, name=clean_name)
-            device_map[legacy_id] = device
-
-        action_map: Dict[int, Action] = {}
-        for legacy_id, device_id, name in legacy_actions:
-            parent_device = device_map.get(device_id) or device_map.get(0)
-            if parent_device is None:
-                parent_device = create_device(
-                    session,
-                    name=UNKNOWN_NAME,
-                    description=UNKNOWN_DESCRIPTION,
-                    device_id=UNKNOWN_DEVICE_ID,
-                )
-                device_map[device_id] = parent_device
-            clean_name = name or UNKNOWN_NAME
-            if (
-                parent_device.id == UNKNOWN_DEVICE_ID
-                and clean_name.strip().lower() == UNKNOWN_NAME.lower()
-            ):
-                action = create_action(
-                    session,
-                    device=parent_device,
-                    name=UNKNOWN_NAME,
-                    description=UNKNOWN_DESCRIPTION,
-                    action_id=UNKNOWN_ACTION_ID,
-                )
-            else:
-                action = create_action(session, device=parent_device, name=clean_name)
-            action_map[legacy_id] = action
-
-        for (
-            legacy_id,
-            action_id,
-            fmt,
-            data,
-            hash_value,
-            repeat,
-            ik,
-            created_at,
-            updated_at,
-            sent_at,
-        ) in legacy_patterns:
-            parent_action = action_map.get(action_id)
-            if parent_action is None:
-                parent_action = action_map.get(0)
-            if parent_action is None:
-                parent_device = device_map.get(0)
-                if parent_device is None:
-                    parent_device = create_device(
-                        session,
-                        name=UNKNOWN_NAME,
-                        description=UNKNOWN_DESCRIPTION,
-                        device_id=UNKNOWN_DEVICE_ID,
-                    )
-                    device_map[0] = parent_device
-                parent_action = create_action(
-                    session,
-                    device=parent_device,
-                    name=UNKNOWN_NAME,
-                    description=UNKNOWN_DESCRIPTION,
-                    action_id=UNKNOWN_ACTION_ID,
-                )
-                action_map[action_id] = parent_action
-
-            repeat_value = int(repeat) if repeat not in (None, "") else 1
-            ik_value = int(ik) if ik not in (None, "") else 23000
-            fmt_value = (fmt or PatternFormatEnum.RAW.value).lower()
-            normalized_data = _normalize_data_for_hash(data)
-            hash_value = compute_pattern_hash(fmt_value, normalized_data, repeat=repeat_value, ik=ik_value)
-
-            payload_json = data if data is not None else "[]"
-            pattern = Pattern(
-                id=_uuid_str(),
-                action_id=parent_action.id,
-                format=fmt_value,
-                data=payload_json,
-                repeat=repeat_value,
-                ik=ik_value,
-                hash=hash_value,
-                created_at=created_at or datetime.utcnow(),
-                updated_at=updated_at or datetime.utcnow(),
-                sent_at=sent_at,
-            )
-            session.add(pattern)
-
-    with engine.begin() as connection:
-        connection.execute(text("DROP TABLE patterns_legacy"))
-        connection.execute(text("DROP TABLE actions_legacy"))
-        connection.execute(text("DROP TABLE devices_legacy"))
-# endregion
-
-
 def _normalize_data_for_hash(raw: str) -> Iterable[str]:
     if raw is None:
         return []
@@ -447,28 +298,6 @@ def _normalize_data_for_hash(raw: str) -> Iterable[str]:
     if isinstance(parsed, list):
         return [str(item) for item in parsed]
     return [str(parsed)]
-
-
-def _ensure_unknown_entities() -> None:
-    with SessionLocal() as session, session.begin():
-        device = session.get(Device, UNKNOWN_DEVICE_ID)
-        if not device:
-            device = Device(
-                id=UNKNOWN_DEVICE_ID,
-                name=UNKNOWN_NAME,
-                description=UNKNOWN_DESCRIPTION,
-            )
-            session.add(device)
-
-        action = session.get(Action, UNKNOWN_ACTION_ID)
-        if not action:
-            action = Action(
-                id=UNKNOWN_ACTION_ID,
-                device_id=device.id,
-                name=UNKNOWN_NAME,
-                description=UNKNOWN_DESCRIPTION,
-            )
-            session.add(action)
 
 
 __all__ = [
@@ -487,7 +316,4 @@ __all__ = [
     "get_action_by_id",
     "get_action_by_name",
     "iter_patterns",
-    "UNKNOWN_DEVICE_ID",
-    "UNKNOWN_ACTION_ID",
-    "UNKNOWN_NAME",
 ]

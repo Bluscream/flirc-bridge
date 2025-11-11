@@ -48,7 +48,7 @@ def delete_device(
     mqtt: MQTTManager | None = None,
 ) -> bool:
     device = session.get(database.Device, device_id)
-    if not device or device.id == database.UNKNOWN_DEVICE_ID:
+    if not device:
         return False
 
     if mqtt:
@@ -66,7 +66,7 @@ def delete_action(
     mqtt: MQTTManager | None = None,
 ) -> bool:
     action = session.get(database.Action, action_id)
-    if not action or action.id == database.UNKNOWN_ACTION_ID:
+    if not action:
         return False
     device = action.device
 
@@ -76,7 +76,7 @@ def delete_action(
     session.delete(action)
     session.flush()
 
-    if device and device.id != database.UNKNOWN_DEVICE_ID and not device.actions:
+    if device and not device.actions:
         session.delete(device)
         session.flush()
 
@@ -104,11 +104,11 @@ def delete_pattern(
         else:
             mqtt.clear_discovery(device, action)
 
-    if action and not action.patterns and action.id != database.UNKNOWN_ACTION_ID:
+    if action and not action.patterns:
         session.delete(action)
         session.flush()
 
-    if device and device.id != database.UNKNOWN_DEVICE_ID and not device.actions:
+    if device and not device.actions:
         session.delete(device)
         session.flush()
 

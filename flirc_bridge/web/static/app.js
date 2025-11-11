@@ -203,8 +203,8 @@ async function submitPattern(event) {
   headers = headers || { "Content-Type": "application/json" };
 
   const endpoint = patternId
-    ? `/api/patterns/${encodeURIComponent(patternId)}`
-    : "/api/patterns";
+    ? `/api/pattern?pattern=${encodeURIComponent(patternId)}`
+    : "/api/pattern";
   const method = patternId ? "PUT" : "POST";
 
   const response = await fetch(endpoint, {
@@ -381,13 +381,10 @@ async function deleteDeviceById(deviceId) {
     return;
   }
   headers = headers || {};
-  const response = await fetch(
-    `/api/devices/${encodeURIComponent(deviceId)}`,
-    {
-      method: "DELETE",
-      headers,
-    }
-  );
+  const response = await fetch(`/api/devices/${encodeURIComponent(deviceId)}`, {
+    method: "DELETE",
+    headers,
+  });
   if (!response.ok) {
     if (!(await handleAuthResponse(response))) {
       return;
@@ -414,7 +411,7 @@ async function deletePatternById(patternId) {
   headers = headers || { "Content-Type": "application/json" };
   try {
     const response = await fetch(
-      `/api/patterns/${encodeURIComponent(patternId)}`,
+      `/api/pattern?pattern=${encodeURIComponent(patternId)}`,
       {
         method: "DELETE",
         headers,
