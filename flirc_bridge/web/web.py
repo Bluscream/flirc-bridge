@@ -106,18 +106,20 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
             payload = pattern.data or "[]"
             fmt = pattern.format
             pattern_hash = pattern.hash
+            repeat_value = pattern.repeat
         logger.info(
-            "Loaded stored pattern device=%s action=%s format=%s hash=%s",
+            "Loaded stored pattern device=%s action=%s format=%s hash=%s repeat=%s",
             device,
             action,
             fmt,
             pattern_hash,
+            repeat_value,
         )
         try:
             data = json.loads(payload)
         except json.JSONDecodeError as exc:
             raise HTTPException(status_code=500, detail=f"Stored pattern is invalid JSON: {exc}") from exc
-        return {"format": fmt, "data": data}
+        return {"format": fmt, "data": data, "repeat": repeat_value}
 
     def _transmit_pattern(
         fmt: str,

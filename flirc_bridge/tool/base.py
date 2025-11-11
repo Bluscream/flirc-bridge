@@ -113,7 +113,7 @@ class FlircTool(BaseTool):
         fmt: ProtocolFormat,
         data: Iterable[str],
         carrier: Optional[int] = None,
-        repeat: Optional[int] = None,
+        repeat: Optional[int] = 1,
     ) -> str:
         args: List[str] = ["sendir"]
         normalized_format = fmt.value.lower()

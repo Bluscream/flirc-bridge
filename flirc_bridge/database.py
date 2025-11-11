@@ -14,6 +14,8 @@ from sqlalchemy import (
     UniqueConstraint,
     create_engine,
     func,
+    inspect,
+    text,
 )
 from sqlalchemy.engine import Engine
 from sqlalchemy.ext.declarative import declarative_base
@@ -63,6 +65,7 @@ class Pattern(Base):
     format = Column(String(32), nullable=False)
     data = Column(Text, nullable=False)
     hash = Column(String(64), nullable=True, index=True)
+    repeat = Column(Integer, nullable=True, default=0, server_default="0")
     created_at = Column(DateTime, default=datetime.utcnow, server_default=func.now())
     updated_at = Column(
         DateTime,
@@ -87,6 +90,7 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
+    _ensure_repeat_column()
 
 
 @contextmanager
@@ -109,6 +113,7 @@ def upsert_pattern(
     format_name: str,
     data: str,
     data_hash: str,
+    repeat: int | None,
 ) -> Pattern:
     device = session.query(Device).filter(Device.name == device_name).one_or_none()
     if device is None:
@@ -132,11 +137,18 @@ def upsert_pattern(
         .one_or_none()
     )
     if pattern is None:
-        pattern = Pattern(action_id=action.id, format=format_name, data=data, hash=data_hash)
+        pattern = Pattern(
+            action_id=action.id,
+            format=format_name,
+            data=data,
+            hash=data_hash,
+            repeat=repeat,
+        )
         session.add(pattern)
     else:
         pattern.data = data
         pattern.hash = data_hash
+        pattern.repeat = repeat
     session.flush()
     return pattern
 
@@ -156,7 +168,7 @@ def remove_action(session: Session, device_name: str, action_name: str) -> bool:
     # Remove device if it has no actions left.
     remaining = session.query(Action).filter(Action.device_id == action.device_id).count()
     if remaining == 0:
-        device = session.query(Device).get(action.device_id)
+        device = session.get(Device, action.device_id)
         if device:
             session.delete(device)
             session.flush()
@@ -186,7 +198,7 @@ def remove_pattern_format(session: Session, device_name: str, action_name: str, 
         return False
 
     action_id = pattern.action_id
-    action = session.query(Action).get(action_id)
+    action = session.get(Action, action_id)
     device_id = action.device_id if action else None
 
     session.delete(pattern)
@@ -200,12 +212,22 @@ def remove_pattern_format(session: Session, device_name: str, action_name: str, 
     if device_id is not None:
         remaining_actions = session.query(Action).filter(Action.device_id == device_id).count()
         if remaining_actions == 0:
-            device = session.query(Device).get(device_id)
+            device = session.get(Device, device_id)
             if device:
                 session.delete(device)
                 session.flush()
 
     return True
+
+
+def _ensure_repeat_column() -> None:
+    inspector = inspect(engine)
+    if not inspector.has_table("patterns"):
+        return
+    column_names = {column["name"] for column in inspector.get_columns("patterns")}
+    if "repeat" not in column_names:
+        with engine.begin() as connection:
+            connection.execute(text("ALTER TABLE patterns ADD COLUMN repeat INTEGER DEFAULT 0"))
 
 
 __all__ = [

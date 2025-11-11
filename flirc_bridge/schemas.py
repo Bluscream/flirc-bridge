@@ -17,6 +17,11 @@ class PatternFormatModel(BaseModel):
         default=None,
         description="SHA-256 hash of the pattern payload",
     )
+    repeat: Optional[int] = Field(
+        default=0,
+        ge=0,
+        description="Repeat count to apply when transmitting this pattern",
+    )
 
     @field_validator("data", mode="before")
     def _ensure_strings(cls, value: Any) -> List[str]:

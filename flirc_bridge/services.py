@@ -27,6 +27,7 @@ def pattern_record_to_db(
             format_name=fmt.format,
             data=json_payload,
             data_hash=data_hash,
+            repeat=fmt.repeat,
         )
         stored_formats[fmt.format] = json_payload
 
@@ -97,8 +98,8 @@ def delete_pattern_format(
     return True
 
 
-def export_patterns(session: Session) -> Dict[str, Dict[str, Dict[str, List[str]]]]:
-    export: Dict[str, Dict[str, Dict[str, List[str]]]] = {}
+def export_patterns(session: Session) -> Dict[str, Dict[str, Dict[str, Dict[str, object]]]]:
+    export: Dict[str, Dict[str, Dict[str, Dict[str, object]]]] = {}
     for device, action, pattern in database.iter_patterns(session):
         pattern_hash = pattern.hash
         if not pattern_hash:
@@ -108,6 +109,7 @@ def export_patterns(session: Session) -> Dict[str, Dict[str, Dict[str, List[str]
         export.setdefault(device.name, {}).setdefault(action.name, {})[pattern.format] = {
             "data": json.loads(pattern.data),
             "hash": pattern_hash,
+            "repeat": pattern.repeat,
         }
     return export
 

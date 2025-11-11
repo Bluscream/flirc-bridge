@@ -11,6 +11,11 @@ const patternsData = appContext.patterns || {};
 const requiresToken = Boolean(appContext.requiresToken);
 let authToken = requiresToken ? window.localStorage.getItem("webToken") : null;
 const alertsRoot = document.getElementById("alerts-root");
+const deviceInput = document.getElementById("device");
+const actionInput = document.getElementById("action");
+const patternFormatSelect = document.getElementById("pattern-format");
+const patternDataInput = document.getElementById("pattern-data");
+const patternRepeatInput = document.getElementById("pattern-repeat");
 
 function showToast(message, variant = "info", delay = 4000) {
   if (!alertsRoot || typeof bootstrap === "undefined" || !bootstrap.Toast) {
@@ -84,7 +89,11 @@ async function handleAuthResponse(response) {
     window.localStorage.removeItem("webToken");
     authToken = null;
     const data = await response.json().catch(() => ({}));
-    showToast("Authentication failed: " + (data.detail || response.statusText), "danger", 5000);
+    showToast(
+      "Authentication failed: " + (data.detail || response.statusText),
+      "danger",
+      5000
+    );
     return false;
   }
   return true;
@@ -92,22 +101,56 @@ async function handleAuthResponse(response) {
 
 async function submitPattern(event) {
   event.preventDefault();
-  const device = document.getElementById("device").value;
-  const action = document.getElementById("action").value;
-  const formatsRaw = document.getElementById("formats").value;
-  let formats;
-  try {
-    formats = JSON.parse(formatsRaw);
-  } catch (error) {
-    showToast("Formats must be valid JSON.", "warning");
+  if (
+    !deviceInput ||
+    !actionInput ||
+    !patternFormatSelect ||
+    !patternDataInput
+  ) {
+    showToast("Pattern form is not available on this page.", "danger");
     return false;
   }
+
+  const device = deviceInput.value.trim();
+  const action = actionInput.value.trim();
+  const formatValue = patternFormatSelect.value;
+  const dataRaw = patternDataInput.value;
+  const repeatRaw = patternRepeatInput ? patternRepeatInput.value : "";
+
+  if (!device || !action) {
+    showToast("Device and action are required.", "warning");
+    return false;
+  }
+
+  const normalized = normalizePatternPayload(formatValue, dataRaw);
+  if (normalized.error) {
+    showToast(normalized.error, "warning");
+    return false;
+  }
+
+  let repeatValue = null;
+  if (repeatRaw !== "" && repeatRaw !== null && repeatRaw !== undefined) {
+    repeatValue = Number(repeatRaw);
+    if (Number.isNaN(repeatValue) || repeatValue < 0) {
+      showToast("Repeat must be a non-negative integer.", "warning");
+      return false;
+    }
+  }
+
+  const formatPayload = {
+    format: formatValue,
+    data: normalized.data,
+  };
+  if (repeatValue !== null) {
+    formatPayload.repeat = repeatValue;
+  }
+
+  const payload = { device, action, formats: [formatPayload] };
   let headers = buildHeaders({ "Content-Type": "application/json" });
   if (requiresToken && headers === null) {
     return false;
   }
   headers = headers || { "Content-Type": "application/json" };
-  const payload = { device, action, formats };
   const response = await fetch("/api/patterns", {
     method: "POST",
     headers,
@@ -118,7 +161,11 @@ async function submitPattern(event) {
       return false;
     }
     const data = await response.json().catch(() => ({}));
-    showToast("Failed to save pattern: " + (data.detail || response.statusText), "danger", 5000);
+    showToast(
+      "Failed to save pattern: " + (data.detail || response.statusText),
+      "danger",
+      5000
+    );
   } else {
     window.location.reload();
   }
@@ -172,14 +219,8 @@ async function sendPatternFormat(device, action, formatName) {
     return;
   }
 
-  const values =
-    formatEntry &&
-    typeof formatEntry === "object" &&
-    !Array.isArray(formatEntry)
-      ? formatEntry.data
-      : formatEntry;
-
-  if (!values) {
+  const parsedEntry = parseStoredPatternEntry(formatEntry);
+  if (!parsedEntry.data || parsedEntry.data.length === 0) {
     showToast(
       `Pattern data missing for ${device}/${action} (${formatName})`,
       "warning"
@@ -187,14 +228,13 @@ async function sendPatternFormat(device, action, formatName) {
     return;
   }
 
-  const normalizedData = Array.isArray(values)
-    ? values.map((item) => String(item))
-    : [String(values)];
-
   const payload = {
     format: (formatName || "").toLowerCase(),
-    data: normalizedData,
+    data: parsedEntry.data.map((item) => String(item)),
   };
+  if (parsedEntry.repeat !== undefined && parsedEntry.repeat !== null) {
+    payload.repeat = parsedEntry.repeat;
+  }
 
   let headers = buildHeaders({ "Content-Type": "application/json" });
   if (requiresToken && headers === null) {
@@ -220,7 +260,15 @@ async function sendPatternFormat(device, action, formatName) {
         5000
       );
     } else {
-      showToast(`Sent ${device}/${action} (${formatName})`, "success", 2500);
+      const repeatText =
+        payload.repeat !== undefined && payload.repeat !== null
+          ? ` (repeat ${payload.repeat})`
+          : "";
+      showToast(
+        `Sent ${device}/${action} (${formatName})${repeatText}`,
+        "success",
+        2500
+      );
     }
   } catch (error) {
     showToast(
@@ -231,30 +279,51 @@ async function sendPatternFormat(device, action, formatName) {
   }
 }
 
-function editPattern(device, action) {
-  if (!patternsData[device] || !patternsData[device][action]) {
-    showToast(`Pattern ${device}/${action} not found`, "warning");
+function editPattern(device, action, formatName) {
+  const deviceEntry = patternsData?.[device];
+  if (!deviceEntry) {
+    showToast(`Device ${device} not found`, "warning");
     return;
   }
-  document.getElementById("device").value = device;
-  document.getElementById("action").value = action;
-  const formats = patternsData[device][action];
-  const formatsArray = Object.entries(formats).map(([format, info]) => {
-    const entry =
-      info && typeof info === "object" && !Array.isArray(info)
-        ? info
-        : { data: info };
-    const payload = { format, data: entry.data };
-    if (entry.hash) {
-      payload.hash = entry.hash;
+  const actionEntry = deviceEntry?.[action];
+  if (!actionEntry || Object.keys(actionEntry).length === 0) {
+    showToast(`Action ${action} not found for ${device}`, "warning");
+    return;
+  }
+
+  let targetFormat = formatName;
+  let storedEntry = targetFormat ? actionEntry[targetFormat] : null;
+  if (!storedEntry) {
+    const fallback = Object.entries(actionEntry)[0];
+    if (!fallback) {
+      showToast(`No formats available for ${device}/${action}`, "warning");
+      return;
     }
-    return payload;
-  });
-  document.getElementById("formats").value = JSON.stringify(
-    formatsArray,
-    null,
-    2
-  );
+    targetFormat = fallback[0];
+    storedEntry = fallback[1];
+  }
+
+  const parsedEntry = parseStoredPatternEntry(storedEntry);
+
+  if (deviceInput) {
+    deviceInput.value = device;
+  }
+  if (actionInput) {
+    actionInput.value = action;
+  }
+  if (patternFormatSelect) {
+    patternFormatSelect.value = targetFormat;
+  }
+  if (patternRepeatInput) {
+    patternRepeatInput.value = parsedEntry.repeat ?? 0;
+  }
+  if (patternDataInput) {
+    patternDataInput.value = patternDataToString(
+      targetFormat,
+      parsedEntry.data
+    );
+  }
+
   window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
 }
 
@@ -481,6 +550,43 @@ function normalizePatternPayload(format, rawValue) {
   return { data: parts };
 }
 
+function parseStoredPatternEntry(entry) {
+  if (!entry) {
+    return { data: [], repeat: 0, hash: null };
+  }
+  if (Array.isArray(entry)) {
+    return { data: entry.map((item) => String(item)), repeat: 0, hash: null };
+  }
+  if (typeof entry === "object") {
+    const values = Array.isArray(entry.data)
+      ? entry.data.map((item) => String(item))
+      : entry.data
+      ? [String(entry.data)]
+      : [];
+    const repeatValue =
+      entry.repeat === undefined || entry.repeat === null
+        ? 0
+        : Number(entry.repeat);
+    return {
+      data: values,
+      repeat: Number.isNaN(repeatValue) || repeatValue < 0 ? 0 : repeatValue,
+      hash: entry.hash || null,
+    };
+  }
+  return { data: [String(entry)], repeat: 0, hash: null };
+}
+
+function patternDataToString(format, data) {
+  if (!Array.isArray(data) || data.length === 0) {
+    return "";
+  }
+  const fmt = (format || "").toLowerCase();
+  if (fmt === "csv" || fmt === "pronto") {
+    return data.join(",");
+  }
+  return data.join(" ");
+}
+
 const patternForm = document.getElementById("pattern-form");
 if (patternForm) {
   patternForm.addEventListener("submit", submitPattern);
@@ -601,6 +707,23 @@ if (customPatternInput) {
 
 if (customSendForm) {
   customSendForm.addEventListener("submit", sendCustomPattern);
+}
+
+if (patternDataInput) {
+  const handlePatternDataInput = () => {
+    const detected = detectFormatFromValue(patternDataInput.value);
+    if (
+      detected &&
+      patternFormatSelect &&
+      detected !== patternFormatSelect.value
+    ) {
+      patternFormatSelect.value = detected;
+    }
+  };
+  patternDataInput.addEventListener("input", handlePatternDataInput);
+  patternDataInput.addEventListener("paste", () => {
+    setTimeout(handlePatternDataInput, 0);
+  });
 }
 
 function stringToHue(value) {

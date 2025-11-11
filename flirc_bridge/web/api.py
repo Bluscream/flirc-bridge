@@ -263,7 +263,7 @@ def create_api_router(
             fmt = loaded["format"]
             data = loaded["data"]
             carrier = payload.carrier
-            repeat = payload.repeat
+            repeat = payload.repeat if payload.repeat is not None else loaded.get("repeat")
         else:
             if payload.format is None or payload.data is None:
                 raise HTTPException(status_code=400, detail="format and data are required for custom patterns")
@@ -299,11 +299,12 @@ def create_api_router(
         state=Depends(get_app_state),
     ):
         loaded = load_stored_pattern(device, action, format)
+        repeat_value = repeat if repeat is not None else loaded.get("repeat")
         return transmit_pattern(
             loaded["format"],
             loaded["data"],
             carrier,
-            repeat,
+            repeat_value,
             state["irtools"],
             state["flirc_util"],
             device=device,
@@ -352,7 +353,7 @@ def create_api_router(
                     record = PatternRecord(
                         device=device_name,
                         action=action_name,
-                        formats=[{"format": request.format, "data": data}],
+                        formats=[{"format": request.format, "data": data, "repeat": 0}],
                     )
                     pattern_record_to_db(session, record, mqtt=state["mqtt"])
 
@@ -383,12 +384,15 @@ def create_api_router(
                     for format_name, entry in formats.items():
                         if entry is None:
                             continue
+                        repeat_value = None
                         if isinstance(entry, dict) and "data" in entry:
                             data_values = entry.get("data")
                             hash_value = entry.get("hash")
+                            repeat_value = entry.get("repeat")
                         else:
                             data_values = entry
                             hash_value = None
+                            repeat_value = None
                         if data_values is None:
                             continue
                         if isinstance(data_values, list):
@@ -398,6 +402,13 @@ def create_api_router(
                         format_model = {"format": format_name, "data": entries}
                         if hash_value:
                             format_model["hash"] = str(hash_value)
+                        if repeat_value is not None:
+                            try:
+                                repeat_int = int(repeat_value)
+                            except (TypeError, ValueError):
+                                repeat_int = None
+                            if repeat_int is not None and repeat_int >= 0:
+                                format_model["repeat"] = repeat_int
                         format_models.append(format_model)
                     if format_models:
                         record = PatternRecord(
