@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-import hashlib
 import json
-from typing import Dict, List
+from typing import Dict
 
 from sqlalchemy.orm import Session
 
 from . import database
 from .mqtt import MQTTManager
-from .schemas import PatternFormatModel, PatternRecord
+from .schemas import PatternRecord
+from .utils import compute_pattern_hash
 
 
 def pattern_record_to_db(
@@ -16,10 +16,11 @@ def pattern_record_to_db(
     record: PatternRecord,
     mqtt: MQTTManager | None = None,
 ) -> None:
-    stored_formats: Dict[str, str] = {}
     for fmt in record.formats:
         json_payload = json.dumps(fmt.data)
-        data_hash = hashlib.sha256(json_payload.encode("utf-8")).hexdigest()
+        repeat_value = fmt.repeat if fmt.repeat is not None and fmt.repeat >= 1 else 1
+        ik_value = fmt.ik if fmt.ik is not None and fmt.ik > 0 else 23000
+        data_hash = compute_pattern_hash(fmt.format, fmt.data, repeat=repeat_value, ik=ik_value)
         database.upsert_pattern(
             session=session,
             device_name=record.device,
@@ -27,9 +28,9 @@ def pattern_record_to_db(
             format_name=fmt.format,
             data=json_payload,
             data_hash=data_hash,
-            repeat=fmt.repeat,
+            repeat=repeat_value,
+            ik=ik_value,
         )
-        stored_formats[fmt.format] = json_payload
 
     if mqtt:
         device = session.query(database.Device).filter(database.Device.name == record.device).one()
@@ -101,18 +102,22 @@ def delete_pattern_format(
 def export_patterns(session: Session) -> Dict[str, Dict[str, Dict[str, Dict[str, object]]]]:
     export: Dict[str, Dict[str, Dict[str, Dict[str, object]]]] = {}
     for device, action, pattern in database.iter_patterns(session):
+        payload_data = json.loads(pattern.data)
+        repeat_value = pattern.repeat or 1
+        ik_value = pattern.ik or 23000
         pattern_hash = pattern.hash
-        if not pattern_hash:
-            pattern_hash = hashlib.sha256(pattern.data.encode("utf-8")).hexdigest()
+        if not pattern_hash or len(pattern_hash) != 32:
+            pattern_hash = compute_pattern_hash(pattern.format, payload_data, repeat=repeat_value, ik=ik_value)
             pattern.hash = pattern_hash
             session.flush()
         export.setdefault(device.name, {}).setdefault(action.name, {})[pattern.format] = {
-            "data": json.loads(pattern.data),
+            "data": payload_data,
             "hash": pattern_hash,
-            "repeat": pattern.repeat,
+            "repeat": pattern.repeat or 1,
+            "ik": pattern.ik or 23000,
         }
     return export
 
 
-def export_patterns_json(session: Session) -> Dict[str, Dict[str, Dict[str, List[str]]]]:
+def export_patterns_json(session: Session) -> Dict[str, Dict[str, Dict[str, Dict[str, object]]]]:
     return export_patterns(session)

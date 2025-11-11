@@ -106,25 +106,27 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
             payload = pattern.data or "[]"
             fmt = pattern.format
             pattern_hash = pattern.hash
-            repeat_value = pattern.repeat
+            repeat_value = pattern.repeat or 1
+            ik_value = pattern.ik or 23000
         logger.info(
-            "Loaded stored pattern device=%s action=%s format=%s hash=%s repeat=%s",
+            "Loaded stored pattern device=%s action=%s format=%s hash=%s repeat=%s ik=%s",
             device,
             action,
             fmt,
             pattern_hash,
             repeat_value,
+            ik_value,
         )
         try:
             data = json.loads(payload)
         except json.JSONDecodeError as exc:
             raise HTTPException(status_code=500, detail=f"Stored pattern is invalid JSON: {exc}") from exc
-        return {"format": fmt, "data": data, "repeat": repeat_value}
+        return {"format": fmt, "data": data, "repeat": repeat_value, "ik": ik_value}
 
     def _transmit_pattern(
         fmt: str,
         data: Optional[List[str]],
-        carrier: Optional[int],
+        ik: Optional[int],
         repeat: Optional[int],
         irtools: IRTools,
         flirc: FlircUtil,
@@ -134,32 +136,34 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
         source: str = "/api/send",
     ) -> Dict[str, Any]:
         data_repr = data if data is None else json.dumps(data)
+        effective_repeat = 1 if repeat is None or repeat < 1 else repeat
+        effective_ik = 23000 if ik is None or ik <= 0 else ik
         if device and action:
             logger.info(
-                "[%s] Dispatching stored pattern device=%s action=%s format=%s carrier=%s repeat=%s data=%s",
+                "[%s] Dispatching stored pattern device=%s action=%s format=%s ik=%s repeat=%s data=%s",
                 source,
                 device,
                 action,
                 fmt,
-                carrier,
-                repeat,
+                effective_ik,
+                effective_repeat,
                 data_repr,
             )
         else:
             logger.info(
-                "[%s] Dispatching custom pattern format=%s carrier=%s repeat=%s data=%s",
+                "[%s] Dispatching custom pattern format=%s ik=%s repeat=%s data=%s",
                 source,
                 fmt,
-                carrier,
-                repeat,
+                effective_ik,
+                effective_repeat,
                 data_repr,
             )
         try:
             result = send_ir_pattern(
                 fmt,
                 data or [],
-                carrier=carrier,
-                repeat=repeat,
+                ik=effective_ik,
+                repeat=effective_repeat,
                 irtools=irtools,
                 flirc_util=flirc,
             )

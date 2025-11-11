@@ -65,7 +65,8 @@ class Pattern(Base):
     format = Column(String(32), nullable=False)
     data = Column(Text, nullable=False)
     hash = Column(String(64), nullable=True, index=True)
-    repeat = Column(Integer, nullable=True, default=0, server_default="0")
+    repeat = Column(Integer, nullable=True, default=1, server_default="1")
+    ik = Column(Integer, nullable=True, default=23000, server_default="23000")
     created_at = Column(DateTime, default=datetime.utcnow, server_default=func.now())
     updated_at = Column(
         DateTime,
@@ -90,7 +91,7 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
-    _ensure_repeat_column()
+    _ensure_pattern_columns()
 
 
 @contextmanager
@@ -114,6 +115,7 @@ def upsert_pattern(
     data: str,
     data_hash: str,
     repeat: int | None,
+    ik: int | None,
 ) -> Pattern:
     device = session.query(Device).filter(Device.name == device_name).one_or_none()
     if device is None:
@@ -136,19 +138,24 @@ def upsert_pattern(
         .filter(Pattern.action_id == action.id, Pattern.format == format_name)
         .one_or_none()
     )
+    repeat_value = 1 if repeat is None or repeat < 1 else repeat
+    ik_value = 23000 if ik is None or ik <= 0 else ik
+
     if pattern is None:
         pattern = Pattern(
             action_id=action.id,
             format=format_name,
             data=data,
             hash=data_hash,
-            repeat=repeat,
+            repeat=repeat_value,
+            ik=ik_value,
         )
         session.add(pattern)
     else:
         pattern.data = data
         pattern.hash = data_hash
-        pattern.repeat = repeat
+        pattern.repeat = repeat_value
+        pattern.ik = ik_value
     session.flush()
     return pattern
 
@@ -220,14 +227,24 @@ def remove_pattern_format(session: Session, device_name: str, action_name: str, 
     return True
 
 
-def _ensure_repeat_column() -> None:
+def _ensure_pattern_columns() -> None:
     inspector = inspect(engine)
     if not inspector.has_table("patterns"):
         return
     column_names = {column["name"] for column in inspector.get_columns("patterns")}
+    statements = []
     if "repeat" not in column_names:
+        statements.append("ALTER TABLE patterns ADD COLUMN repeat INTEGER DEFAULT 1")
+    if "ik" not in column_names:
+        statements.append("ALTER TABLE patterns ADD COLUMN ik INTEGER DEFAULT 23000")
+    if statements:
         with engine.begin() as connection:
-            connection.execute(text("ALTER TABLE patterns ADD COLUMN repeat INTEGER DEFAULT 0"))
+            for stmt in statements:
+                connection.execute(text(stmt))
+        # Update existing rows to defaults where needed
+        with engine.begin() as connection:
+            connection.execute(text("UPDATE patterns SET repeat = 1 WHERE repeat IS NULL OR repeat < 1"))
+            connection.execute(text("UPDATE patterns SET ik = 23000 WHERE ik IS NULL OR ik <= 0"))
 
 
 __all__ = [

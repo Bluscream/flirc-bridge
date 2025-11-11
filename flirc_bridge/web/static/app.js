@@ -16,6 +16,7 @@ const actionInput = document.getElementById("action");
 const patternFormatSelect = document.getElementById("pattern-format");
 const patternDataInput = document.getElementById("pattern-data");
 const patternRepeatInput = document.getElementById("pattern-repeat");
+const patternIkInput = document.getElementById("pattern-ik");
 
 function showToast(message, variant = "info", delay = 4000) {
   if (!alertsRoot || typeof bootstrap === "undefined" || !bootstrap.Toast) {
@@ -116,6 +117,7 @@ async function submitPattern(event) {
   const formatValue = patternFormatSelect.value;
   const dataRaw = patternDataInput.value;
   const repeatRaw = patternRepeatInput ? patternRepeatInput.value : "";
+  const ikRaw = patternIkInput ? patternIkInput.value : "";
 
   if (!device || !action) {
     showToast("Device and action are required.", "warning");
@@ -137,12 +139,24 @@ async function submitPattern(event) {
     }
   }
 
+  let ikValue = null;
+  if (ikRaw !== "" && ikRaw !== null && ikRaw !== undefined) {
+    ikValue = Number(ikRaw);
+    if (Number.isNaN(ikValue) || ikValue <= 0) {
+      showToast("IK must be a positive integer.", "warning");
+      return false;
+    }
+  }
+
   const formatPayload = {
     format: formatValue,
     data: normalized.data,
   };
   if (repeatValue !== null) {
     formatPayload.repeat = repeatValue;
+  }
+  if (ikValue !== null) {
+    formatPayload.ik = ikValue;
   }
 
   const payload = { device, action, formats: [formatPayload] };
@@ -233,7 +247,10 @@ async function sendPatternFormat(device, action, formatName) {
     data: parsedEntry.data.map((item) => String(item)),
   };
   if (parsedEntry.repeat !== undefined && parsedEntry.repeat !== null) {
-    payload.repeat = parsedEntry.repeat;
+    payload.repeat = Number(parsedEntry.repeat);
+  }
+  if (parsedEntry.ik !== undefined && parsedEntry.ik !== null) {
+    payload.ik = Number(parsedEntry.ik);
   }
 
   let headers = buildHeaders({ "Content-Type": "application/json" });
@@ -260,12 +277,16 @@ async function sendPatternFormat(device, action, formatName) {
         5000
       );
     } else {
-      const repeatText =
-        payload.repeat !== undefined && payload.repeat !== null
-          ? ` (repeat ${payload.repeat})`
-          : "";
+      const suffixParts = [];
+      if (payload.repeat !== undefined && payload.repeat !== null) {
+        suffixParts.push(`repeat ${payload.repeat}`);
+      }
+      if (payload.ik !== undefined && payload.ik !== null) {
+        suffixParts.push(`ik ${payload.ik}`);
+      }
+      const suffix = suffixParts.length ? ` (${suffixParts.join(", ")})` : "";
       showToast(
-        `Sent ${device}/${action} (${formatName})${repeatText}`,
+        `Sent ${device}/${action} (${formatName})${suffix}`,
         "success",
         2500
       );
@@ -315,7 +336,10 @@ function editPattern(device, action, formatName) {
     patternFormatSelect.value = targetFormat;
   }
   if (patternRepeatInput) {
-    patternRepeatInput.value = parsedEntry.repeat ?? 0;
+    patternRepeatInput.value = parsedEntry.repeat ?? 1;
+  }
+  if (patternIkInput) {
+    patternIkInput.value = parsedEntry.ik ?? 23000;
   }
   if (patternDataInput) {
     patternDataInput.value = patternDataToString(
@@ -552,10 +576,15 @@ function normalizePatternPayload(format, rawValue) {
 
 function parseStoredPatternEntry(entry) {
   if (!entry) {
-    return { data: [], repeat: 0, hash: null };
+    return { data: [], repeat: 1, ik: 23000, hash: null };
   }
   if (Array.isArray(entry)) {
-    return { data: entry.map((item) => String(item)), repeat: 0, hash: null };
+    return {
+      data: entry.map((item) => String(item)),
+      repeat: 1,
+      ik: 23000,
+      hash: null,
+    };
   }
   if (typeof entry === "object") {
     const values = Array.isArray(entry.data)
@@ -565,15 +594,18 @@ function parseStoredPatternEntry(entry) {
       : [];
     const repeatValue =
       entry.repeat === undefined || entry.repeat === null
-        ? 0
+        ? 1
         : Number(entry.repeat);
+    const ikValue =
+      entry.ik === undefined || entry.ik === null ? 23000 : Number(entry.ik);
     return {
       data: values,
-      repeat: Number.isNaN(repeatValue) || repeatValue < 0 ? 0 : repeatValue,
+      repeat: Number.isNaN(repeatValue) || repeatValue < 1 ? 1 : repeatValue,
+      ik: Number.isNaN(ikValue) || ikValue <= 0 ? 23000 : ikValue,
       hash: entry.hash || null,
     };
   }
-  return { data: [String(entry)], repeat: 0, hash: null };
+  return { data: [String(entry)], repeat: 1, ik: 23000, hash: null };
 }
 
 function patternDataToString(format, data) {
@@ -600,12 +632,33 @@ window.deleteDevice = deleteDevice;
 window.scrollToAddPattern = scrollToAddPattern;
 
 function scrollToAddPattern() {
+  if (deviceInput) {
+    deviceInput.value = "";
+    deviceInput.focus();
+  }
+  if (actionInput) {
+    actionInput.value = "";
+  }
+  if (patternRepeatInput) {
+    patternRepeatInput.value = "1";
+  }
+  if (patternIkInput) {
+    patternIkInput.value = "23000";
+  }
+  if (patternDataInput) {
+    patternDataInput.value = "";
+  }
+  if (patternFormatSelect) {
+    patternFormatSelect.value = "raw";
+  }
   window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
 }
 
 const customSendForm = document.getElementById("custom-send-form");
 const customFormatSelect = document.getElementById("custom-format-select");
 const customPatternInput = document.getElementById("custom-pattern-input");
+const customRepeatInput = document.getElementById("custom-repeat-input");
+const customIkInput = document.getElementById("custom-ik-input");
 const customSendButton = document.getElementById("custom-send-button");
 
 async function sendCustomPattern(event) {
@@ -632,6 +685,24 @@ async function sendCustomPattern(event) {
     return false;
   }
 
+  let repeatValue = null;
+  if (customRepeatInput && customRepeatInput.value !== "") {
+    repeatValue = Number(customRepeatInput.value);
+    if (Number.isNaN(repeatValue) || repeatValue < 1) {
+      showToast("Repeat must be a positive integer.", "warning");
+      return false;
+    }
+  }
+
+  let ikValue = null;
+  if (customIkInput && customIkInput.value !== "") {
+    ikValue = Number(customIkInput.value);
+    if (Number.isNaN(ikValue) || ikValue <= 0) {
+      showToast("IK must be a positive integer.", "warning");
+      return false;
+    }
+  }
+
   let headers = buildHeaders({ "Content-Type": "application/json" });
   if (requiresToken && headers === null) {
     return false;
@@ -642,6 +713,12 @@ async function sendCustomPattern(event) {
     format: selectedFormat,
     data: normalized.data,
   };
+  if (repeatValue !== null) {
+    payload.repeat = repeatValue;
+  }
+  if (ikValue !== null) {
+    payload.ik = ikValue;
+  }
 
   if (customSendButton) {
     customSendButton.disabled = true;
@@ -667,6 +744,12 @@ async function sendCustomPattern(event) {
       return false;
     }
     showToast("Custom pattern sent", "success", 2500);
+    if (customRepeatInput) {
+      customRepeatInput.value = customRepeatInput.value || "1";
+    }
+    if (customIkInput) {
+      customIkInput.value = customIkInput.value || "23000";
+    }
     customPatternInput.value = "";
     customPatternInput.focus();
     return true;

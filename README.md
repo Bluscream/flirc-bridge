@@ -192,7 +192,7 @@ curl -X POST http://localhost:8000/api/send \
     "format": "raw",
     "data": ["+9094 -4399 ..."],
     "repeat": 1,
-    "carrier": 38000
+    "ik": 23000
   }'
 ```
 
@@ -220,16 +220,7 @@ Publish to `flirc_bridge/send`:
 {
   "format": "raw",
   "data": ["+9094 -4399 ..."],
-  "carrier": 38000,
+  "ik": 23000,
   "repeat": 1
 }
 ```
-
-## Notes
-
-- Home Assistant discovery topics are retained so buttons reappear after restart.
-- When patterns are deleted, their discovery topics are cleared.
-- Enable `AUTO_STORE_PATTERNS=true` to automatically save newly received patterns (unless already present by matching hash).
-- Set `WEB_TOKEN` to require an access token for add/edit/delete operations via the UI or REST API.
-- Each stored pattern keeps a SHA-256 hash alongside the payload so duplicates can be detected quickly.
-- The project currently assumes `irtools` supports `send --format ... --data ...` and `listen --format ...`. Adjust the command flags in `flirc_bridge/tool/irtools.py` if your version differs.

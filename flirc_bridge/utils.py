@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
 
@@ -110,6 +112,28 @@ def scrub_dict(data: Dict[str, Any], values_to_remove: Iterable[Any]) -> Dict[st
     return _scrub(dict(data))
 
 
+def compute_pattern_hash(
+    fmt: str,
+    data: Iterable[Any],
+    *,
+    repeat: int | None = None,
+    ik: int | None = None,
+) -> str:
+    """Return md5 hex digest for a pattern payload.
+
+    The hash incorporates format, normalized data (as strings), repeat, and ik values.
+    """
+
+    normalized = {
+        "format": (fmt or "").lower(),
+        "data": [str(item) for item in (data or [])],
+        "repeat": 1 if repeat is None or repeat < 1 else int(repeat),
+        "ik": 23000 if ik is None or ik <= 0 else int(ik),
+    }
+    blob = json.dumps(normalized, separators=(",", ":"), sort_keys=True)
+    return hashlib.md5(blob.encode("utf-8")).hexdigest()
+
+
 __all__ = [
     "coerce_bool",
     "coerce_int",
@@ -119,4 +143,5 @@ __all__ = [
     "resolve_path",
     "should_refresh",
     "scrub_dict",
+    "compute_pattern_hash",
 ]

@@ -18,9 +18,14 @@ class PatternFormatModel(BaseModel):
         description="SHA-256 hash of the pattern payload",
     )
     repeat: Optional[int] = Field(
-        default=0,
-        ge=0,
+        default=1,
+        ge=1,
         description="Repeat count to apply when transmitting this pattern",
+    )
+    ik: Optional[int] = Field(
+        default=23000,
+        ge=1,
+        description="Inter-key delay to apply (maps to --ik)",
     )
 
     @field_validator("data", mode="before")
@@ -30,6 +35,30 @@ class PatternFormatModel(BaseModel):
         if isinstance(value, str):
             return [value]
         raise ValueError("data must be a string or list of strings")
+
+    @field_validator("repeat", mode="before")
+    def _normalize_repeat(cls, value: Any) -> Optional[int]:
+        if value is None:
+            return 1
+        try:
+            repeat_value = int(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("repeat must be an integer") from exc
+        if repeat_value < 1:
+            raise ValueError("repeat must be >= 1")
+        return repeat_value
+
+    @field_validator("ik", mode="before")
+    def _normalize_ik(cls, value: Any) -> Optional[int]:
+        if value is None:
+            return 23000
+        try:
+            ik_value = int(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("ik must be an integer") from exc
+        if ik_value <= 0:
+            raise ValueError("ik must be > 0")
+        return ik_value
 
 
 class PatternRecord(BaseModel):
@@ -53,8 +82,9 @@ class SendPatternRequest(BaseModel):
         None,
         description="Payload for custom pattern (applies when device/action are omitted)",
     )
-    carrier: Optional[int] = Field(None, description="Carrier frequency in Hz")
-    repeat: Optional[int] = Field(None, description="Repeat count for IR transmission")
+    ik: Optional[int] = Field(None, description="Inter-key delay (alias for carrier)")
+    carrier: Optional[int] = Field(None, description="Deprecated alias for ik")
+    repeat: Optional[int] = Field(None, description="Repeat count for IR transmission", ge=1)
 
     @field_validator("data", mode="before")
     def _ensure_optional_list(cls, value: Any) -> Optional[List[str]]:
@@ -73,6 +103,12 @@ class SendPatternRequest(BaseModel):
                 raise ValueError("format is required for custom patterns")
             if not self.data:
                 raise ValueError("data is required for custom patterns")
+        if self.ik is None and self.carrier is not None:
+            self.ik = self.carrier
+        if self.repeat is not None and self.repeat < 1:
+            raise ValueError("repeat must be >= 1 when provided")
+        if self.ik is not None and self.ik <= 0:
+            raise ValueError("ik must be > 0 when provided")
         return self
 
 

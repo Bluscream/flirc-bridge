@@ -69,7 +69,7 @@ def send_ir_pattern(
     fmt: Union[ProtocolFormat, str],
     data: Iterable[str],
     *,
-    carrier: Optional[int] = None,
+    ik: Optional[int] = None,
     repeat: Optional[int] = None,
     irtools: Optional[IRTools] = None,
     flirc_util: Optional[FlircUtil] = None,
@@ -84,11 +84,14 @@ def send_ir_pattern(
 
     data_list = list(data)
 
+    repeat_value = 1 if repeat is None or repeat < 1 else repeat
+    ik_value = 23000 if ik is None or ik <= 0 else ik
+
     ir = irtools or get_irtools()
     try:
         ir.stop_ir()
-        ir_output = ir.send_ir(fmt_enum, data_list, carrier=carrier, repeat=repeat)
-        return {"tool": "irtools", "output": ir_output, "fallback": False}
+        ir_output = ir.send_ir(fmt_enum, data_list, ik=ik_value, repeat=repeat_value)
+        return {"tool": "irtools", "output": ir_output, "fallback": False, "ik": ik_value, "repeat": repeat_value}
     except Exception as exc:
         last_error = exc
 
@@ -99,10 +102,17 @@ def send_ir_pattern(
         flirc_output = fu.send_ir(
             fmt_enum,
             normalized_data,
-            carrier=carrier,
-            repeat=repeat,
+            ik=ik_value,
+            repeat=repeat_value,
         )
-        return {"tool": "flirc_util", "output": flirc_output, "fallback": True, "irtools_error": str(last_error)}
+        return {
+            "tool": "flirc_util",
+            "output": flirc_output,
+            "fallback": True,
+            "irtools_error": str(last_error),
+            "ik": ik_value,
+            "repeat": repeat_value,
+        }
     except Exception as flirc_exc:
         raise ToolError(f"Both irtools and flirc_util failed: irtools={last_error}; flirc_util={flirc_exc}") from flirc_exc
 

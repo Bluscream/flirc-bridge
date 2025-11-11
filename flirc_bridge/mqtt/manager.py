@@ -167,6 +167,8 @@ class MQTTManager:
         attributes_payload = {
             "format": pattern_format,
             "hash": pattern.hash,
+            "repeat": pattern.repeat or 1,
+            "ik": pattern.ik or 23000,
             "updated_at": (pattern.updated_at or pattern.created_at or datetime.utcnow()).isoformat(),
         }
         self.client.publish(
@@ -177,7 +179,16 @@ class MQTTManager:
 
         def handler() -> None:
             try:
-                send_ir_pattern(pattern_format, json.loads(pattern_data), irtools=self.irtools)
+                payload_values = json.loads(pattern_data)
+                repeat_value = pattern.repeat or 1
+                ik_value = pattern.ik or 23000
+                send_ir_pattern(
+                    pattern_format,
+                    payload_values,
+                    ik=ik_value,
+                    repeat=repeat_value,
+                    irtools=self.irtools,
+                )
                 logger.info("Sent pattern %s/%s (%s)", device_name, action_name, pattern_format)
             except (ToolError, json.JSONDecodeError) as exc:
                 logger.error(
@@ -242,6 +253,8 @@ class MQTTManager:
                 format_name, export_payload = first_entry
                 pattern_data = export_payload.get("data")
                 pattern_hash = export_payload.get("hash")
+                repeat_value = export_payload.get("repeat")
+                ik_value = export_payload.get("ik")
                 data_string = json.dumps(pattern_data) if pattern_data is not None else "[]"
                 dummy_device = Device(name=device_name)
                 dummy_action = Action(name=action_name, device=dummy_device)
@@ -250,6 +263,8 @@ class MQTTManager:
                     data=data_string,
                     action=dummy_action,
                     hash=pattern_hash,
+                    repeat=repeat_value if repeat_value not in (None, 0) else 1,
+                    ik=ik_value if ik_value not in (None, 0) else 23000,
                 )
                 dummy_action.patterns.append(dummy_pattern)
                 self.refresh_action(dummy_device, dummy_action)
@@ -263,13 +278,15 @@ class MQTTManager:
         fmt = data.get("format")
         values = data.get("data")
         carrier = data.get("carrier")
+        ik = data.get("ik")
         repeat = data.get("repeat")
         if not fmt or not values:
             logger.warning("Custom MQTT payload missing 'format' or 'data'")
             return
         try:
             items = [str(item) for item in values] if isinstance(values, list) else [str(values)]
-            send_ir_pattern(fmt, items, carrier=carrier, repeat=repeat, irtools=self.irtools)
+            ik_value = ik if ik is not None else carrier
+            send_ir_pattern(fmt, items, ik=ik_value, repeat=repeat, irtools=self.irtools)
             logger.info("Sent custom MQTT payload (%s)", fmt)
         except ToolError as exc:
             logger.error("Failed to send custom MQTT payload (%s): %s", fmt, exc)

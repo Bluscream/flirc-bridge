@@ -21,6 +21,7 @@
           <th scope="col">Action</th>
           <th scope="col">Format</th>
           <th scope="col">Repeat</th>
+          <th scope="col">IK</th>
           <th scope="col" class="text-end">Actions</th>
         </tr>
       </thead>
@@ -46,12 +47,20 @@
         {% set formats = action_pair[1] %}
         {% if formats %}
         {% for format_name, format_data in formats|dictsort %}
-        {% set repeat_value = format_data.get('repeat', 0) if format_data is mapping else 0 %}
+        {% set is_mapping = format_data is mapping %}
+        {% if is_mapping %}
+        {% set repeat_value = format_data.get('repeat', 1) %}
+        {% set ik_value = format_data.get('ik', 23000) %}
+        {% else %}
+        {% set repeat_value = 1 %}
+        {% set ik_value = 23000 %}
+        {% endif %}
         <tr>
           <td class="text-white align-middle">{{ device }}</td>
           <td class="text-white align-middle">{{ action }}</td>
           <td class="text-secondary align-middle text-uppercase">{{ format_name }}</td>
-          <td class="text-white align-middle">{{ repeat_value }}</td>
+          <td class="text-white align-middle">{{ repeat_value|int }}</td>
+          <td class="text-white align-middle">{{ ik_value|int }}</td>
           <td class="text-end align-middle">
             <div class="btn-group btn-group-sm" role="group">
               <button type="button" class="btn btn-outline-success" title="Send {{ format_name }} pattern" onclick='sendPatternFormat({{ device|tojson }}, {{ action|tojson }}, {{ format_name|tojson }})'>
@@ -68,6 +77,7 @@
           <td class="text-white align-middle">{{ device }}</td>
           <td class="text-white align-middle">{{ action }}</td>
           <td class="text-secondary align-middle">N/A</td>
+          <td class="text-secondary align-middle">—</td>
           <td class="text-secondary align-middle">—</td>
           <td class="text-end align-middle">
             <div class="btn-group btn-group-sm" role="group">
@@ -116,7 +126,11 @@
         </div>
         <div class="col-6 col-md-2">
           <label for="pattern-repeat" class="form-label">Repeat</label>
-          <input id="pattern-repeat" type="number" class="form-control" min="0" step="1" value="0" />
+          <input id="pattern-repeat" type="number" class="form-control" min="0" step="1" value="1" />
+        </div>
+        <div class="col-6 col-md-2">
+          <label for="pattern-ik" class="form-label">IK</label>
+          <input id="pattern-ik" type="number" class="form-control" min="1" step="1" value="23000" />
         </div>
         <div class="col-12">
           <label for="pattern-data" class="form-label">Pattern Data</label>

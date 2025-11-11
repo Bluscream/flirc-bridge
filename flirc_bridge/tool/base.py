@@ -112,8 +112,8 @@ class FlircTool(BaseTool):
         self,
         fmt: ProtocolFormat,
         data: Iterable[str],
-        carrier: Optional[int] = None,
-        repeat: Optional[int] = 1,
+        ik: Optional[int] = None,
+        repeat: Optional[int] = None,
     ) -> str:
         args: List[str] = ["sendir"]
         normalized_format = fmt.value.lower()
@@ -126,8 +126,8 @@ class FlircTool(BaseTool):
         else:
             joined = "".join(str(item) for item in data)
             args.append(f'--raw="{joined}"') # -x, --raw            +8248 -1291 +212 ...
-        if carrier is not None:
-            args.append(f'--ik={carrier}') # -i, --ik             set the interkey delay between rep. frames
+        if ik is not None:
+            args.append(f'--ik={ik}') # -i, --ik             set the interkey delay between rep. frames
         if repeat is not None:
             args.append(f'--repeat={repeat}') # -r, --repeat         number of times to repeat pattern
         result = self.run(*args)
