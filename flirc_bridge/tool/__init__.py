@@ -82,10 +82,12 @@ def send_ir_pattern(
     else:
         fmt_enum = fmt
 
+    data_list = list(data)
+
     ir = irtools or get_irtools()
     try:
         ir.stop_ir()
-        ir_output = ir.send_ir(fmt_enum, data, carrier=carrier, repeat=repeat)
+        ir_output = ir.send_ir(fmt_enum, data_list, carrier=carrier, repeat=repeat)
         return {"tool": "irtools", "output": ir_output, "fallback": False}
     except Exception as exc:
         last_error = exc
@@ -93,9 +95,10 @@ def send_ir_pattern(
     fu = flirc_util or get_flirc_util()
     try:
         fu.stop_ir()
+        normalized_data = list(data)
         flirc_output = fu.send_ir(
-            data,
-            fmt=fmt_enum,
+            fmt_enum,
+            normalized_data,
             carrier=carrier,
             repeat=repeat,
         )

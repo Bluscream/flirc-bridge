@@ -177,7 +177,7 @@ function editPattern(device, action) {
   );
   const form = patternForm || document.getElementById("pattern-form");
   if (form) {
-    window.scrollTo({ top: form.offsetTop, behavior: "smooth" });
+    window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
   }
 }
 
@@ -202,7 +202,11 @@ async function deleteAction(device, action) {
       return;
     }
     const data = await response.json().catch(() => ({}));
-    showToast("Failed to delete pattern: " + (data.detail || response.statusText), "danger", 5000);
+    showToast(
+      "Failed to delete pattern: " + (data.detail || response.statusText),
+      "danger",
+      5000
+    );
   } else {
     window.location.reload();
   }
@@ -234,7 +238,9 @@ async function deleteDevice(device) {
       }
       const data = await response.json().catch(() => ({}));
       showToast(
-        `Failed to delete ${device}/${action}: ${data.detail || response.statusText}`,
+        `Failed to delete ${device}/${action}: ${
+          data.detail || response.statusText
+        }`,
         "danger",
         5000
       );
@@ -242,6 +248,116 @@ async function deleteDevice(device) {
     }
   }
   window.location.reload();
+}
+
+function detectFormatFromValue(value) {
+  if (!value) {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  if (trimmed.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed) && parsed.length) {
+        const flattened = parsed
+          .flat(Infinity)
+          .map((item) => String(item ?? ""));
+        if (flattened.every((item) => /^[-+]/.test(item))) {
+          return "raw";
+        }
+        if (flattened.every((item) => /^[0-9a-fA-F]+$/.test(item))) {
+          return "pronto";
+        }
+        return "csv";
+      }
+    } catch (error) {
+      // ignore JSON parse issues during detection
+    }
+  }
+  const condensed = trimmed.replace(/\s+/g, "").toLowerCase();
+  if (/^0000/.test(condensed) || /[a-f]/.test(condensed)) {
+    return "pronto";
+  }
+  if (/[+-]/.test(trimmed)) {
+    return "raw";
+  }
+  if (trimmed.includes(",")) {
+    return "csv";
+  }
+  if (/^[0-9\s]+$/.test(trimmed) && trimmed.includes(" ")) {
+    return "raw";
+  }
+  return null;
+}
+
+function normalizePatternPayload(format, rawValue) {
+  const trimmed = (rawValue || "").trim();
+  if (!trimmed) {
+    return { error: "Pattern data is required." };
+  }
+
+  const toStrings = (items) =>
+    items
+      .map((entry) => {
+        if (entry === null || entry === undefined) {
+          return null;
+        }
+        if (Array.isArray(entry)) {
+          return entry
+            .map((sub) =>
+              sub === null || sub === undefined ? null : String(sub)
+            )
+            .filter(Boolean);
+        }
+        return String(entry);
+      })
+      .flat()
+      .filter(Boolean);
+
+  if (trimmed.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        const flattened = toStrings(parsed);
+        if (flattened.length) {
+          return { data: flattened };
+        }
+      }
+    } catch (error) {
+      return { error: "Unable to parse JSON pattern." };
+    }
+  }
+
+  const lowerFormat = (format || "raw").toLowerCase();
+  let parts = [];
+  if (lowerFormat === "pronto") {
+    parts = trimmed
+      .replace(/\s+/g, ",")
+      .split(/,+/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .map((item) => item.toUpperCase());
+  } else if (lowerFormat === "csv") {
+    parts = trimmed
+      .replace(/\s+/g, ",")
+      .split(/,+/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  } else {
+    parts = trimmed
+      .split(/\s+/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  if (!parts.length) {
+    return { error: "Pattern data could not be parsed." };
+  }
+
+  return { data: parts };
 }
 
 const patternForm = document.getElementById("pattern-form");
@@ -253,3 +369,142 @@ window.sendPattern = sendPattern;
 window.editPattern = editPattern;
 window.deleteAction = deleteAction;
 window.deleteDevice = deleteDevice;
+
+function scrollToAddPattern() {
+  window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+}
+
+const customSendForm = document.getElementById("custom-send-form");
+const customFormatSelect = document.getElementById("custom-format-select");
+const customPatternInput = document.getElementById("custom-pattern-input");
+const customSendButton = document.getElementById("custom-send-button");
+
+async function sendCustomPattern(event) {
+  event.preventDefault();
+  if (!customPatternInput) {
+    return false;
+  }
+  const rawValue = customPatternInput.value.trim();
+  if (!rawValue) {
+    showToast("Pattern data is required.", "warning");
+    return false;
+  }
+
+  let selectedFormat = customFormatSelect ? customFormatSelect.value : "raw";
+  const detected = detectFormatFromValue(rawValue);
+  if (detected && customFormatSelect && detected !== customFormatSelect.value) {
+    customFormatSelect.value = detected;
+    selectedFormat = detected;
+  }
+
+  const normalized = normalizePatternPayload(selectedFormat, rawValue);
+  if (normalized.error) {
+    showToast(normalized.error, "warning");
+    return false;
+  }
+
+  let headers = buildHeaders({ "Content-Type": "application/json" });
+  if (requiresToken && headers === null) {
+    return false;
+  }
+  headers = headers || { "Content-Type": "application/json" };
+
+  const payload = {
+    format: selectedFormat,
+    data: normalized.data,
+  };
+
+  if (customSendButton) {
+    customSendButton.disabled = true;
+  }
+
+  try {
+    const response = await fetch("/api/send", {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      if (!(await handleAuthResponse(response))) {
+        return false;
+      }
+      const data = await response.json().catch(() => ({}));
+      showToast(
+        "Failed to send custom pattern: " +
+          (data.detail || response.statusText),
+        "danger",
+        5000
+      );
+      return false;
+    }
+    showToast("Custom pattern sent", "success", 2500);
+    customPatternInput.value = "";
+    customPatternInput.focus();
+    return true;
+  } catch (error) {
+    showToast(`Failed to send custom pattern: ${error}`, "danger", 5000);
+    return false;
+  } finally {
+    if (customSendButton) {
+      customSendButton.disabled = false;
+    }
+  }
+}
+
+if (customPatternInput) {
+  const handleCustomPatternInput = () => {
+    const detected = detectFormatFromValue(customPatternInput.value);
+    if (
+      detected &&
+      customFormatSelect &&
+      detected !== customFormatSelect.value
+    ) {
+      customFormatSelect.value = detected;
+    }
+  };
+  customPatternInput.addEventListener("input", handleCustomPatternInput);
+  customPatternInput.addEventListener("paste", () => {
+    setTimeout(handleCustomPatternInput, 0);
+  });
+  customPatternInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      if (customSendForm) {
+        customSendForm.requestSubmit();
+      }
+    }
+  });
+}
+
+if (customSendForm) {
+  customSendForm.addEventListener("submit", sendCustomPattern);
+}
+
+function stringToHue(value) {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = value.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return Math.abs(hash % 360);
+}
+
+function getActionButtonColor(label) {
+  if (!label) {
+    return "var(--bs-primary)";
+  }
+  const key = label.toLowerCase();
+  const hue = stringToHue(key);
+  return `hsl(${hue}, 70%, 45%)`;
+}
+
+function applyActionButtonStyles() {
+  const buttons = document.querySelectorAll(".action-send-button");
+  buttons.forEach((button) => {
+    const label = button.dataset.actionLabel || button.textContent || "";
+    const color = getActionButtonColor(label.trim());
+    button.style.backgroundColor = color;
+    button.style.borderColor = color;
+  });
+}
+
+applyActionButtonStyles();

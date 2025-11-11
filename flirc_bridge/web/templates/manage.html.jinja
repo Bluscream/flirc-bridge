@@ -1,0 +1,115 @@
+{% extends "layout.html.jinja" %}
+
+{% block title %}{{ settings.instance_name }} - Manage · Flirc Bridge{% endblock %}
+
+{% block content %}
+<section class="mb-4">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h2 class="h4 text-white mb-0">Manage Patterns</h2>
+    <button type="button" class="btn btn-success" onclick="scrollToAddPattern()">Add</button>
+  </div>
+  {% if not patterns %}
+  <div class="alert alert-secondary text-secondary-emphasis" role="alert">
+    No patterns stored yet.
+  </div>
+  {% else %}
+  <div class="table-responsive">
+    <table class="table table-dark table-striped align-middle">
+      <thead>
+        <tr>
+          <th scope="col">Device</th>
+          <th scope="col">Action</th>
+          <th scope="col">Format</th>
+          <th scope="col" class="text-end">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for device, actions in patterns|dictsort %}
+        {% set action_items = actions|dictsort %}
+        {% if action_items|length == 0 %}
+        <tr>
+          <td class="align-middle">
+            <div class="fw-semibold text-white">{{ device }}</div>
+            <button class="btn btn-sm btn-outline-danger mt-2" onclick='deleteDevice({{ device|tojson }})'>Delete Device</button>
+          </td>
+          <td class="text-white align-middle">—</td>
+          <td class="text-secondary align-middle">—</td>
+          <td class="text-end align-middle">
+            <span class="text-secondary">No actions available</span>
+          </td>
+        </tr>
+        {% else %}
+        {% for action_pair in action_items %}
+        {% set action = action_pair[0] %}
+        {% set formats = action_pair[1] %}
+        {% if formats %}
+        {% for format_name, format_data in formats|dictsort %}
+        <tr>
+          <td class="text-white align-middle">{{ device }}</td>
+          <td class="text-white align-middle">{{ action }}</td>
+          <td class="text-secondary align-middle text-uppercase">{{ format_name }}</td>
+          <td class="text-end align-middle">
+            <div class="btn-group btn-group-sm" role="group">
+              <button type="button" class="btn btn-outline-success" onclick='sendPattern({{ device|tojson }}, {{ action|tojson }})'>
+                Send
+              </button>
+              <button type="button" class="btn btn-outline-light" onclick='editPattern({{ device|tojson }}, {{ action|tojson }})'>Edit</button>
+              <button type="button" class="btn btn-outline-danger" onclick='deleteAction({{ device|tojson }}, {{ action|tojson }})'>Delete</button>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+        {% else %}
+        <tr>
+          <td class="text-white align-middle">{{ device }}</td>
+          <td class="text-white align-middle">{{ action }}</td>
+          <td class="text-secondary align-middle">N/A</td>
+          <td class="text-end align-middle">
+            <div class="btn-group btn-group-sm" role="group">
+              <button type="button" class="btn btn-outline-light" onclick='editPattern({{ device|tojson }}, {{ action|tojson }})'>Edit</button>
+              <button type="button" class="btn btn-outline-danger" onclick='deleteAction({{ device|tojson }}, {{ action|tojson }})'>Delete</button>
+            </div>
+          </td>
+        </tr>
+        {% endif %}
+        {% endfor %}
+        {% endif %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</section>
+
+<section>
+  <div class="card bg-body-tertiary border-0 shadow-lg">
+    <div class="card-header bg-transparent border-secondary-subtle">
+      <h3 class="h5 text-white mb-0">Add or Update Pattern</h3>
+    </div>
+    <div class="card-body">
+      {% if requires_token %}
+      <div class="alert alert-info text-info-emphasis" role="alert">
+        An access token is required to add, edit, or delete patterns. You will be prompted when needed.
+      </div>
+      {% endif %}
+      <form id="pattern-form" method="post" action="/api/patterns" enctype="application/json" class="row g-3">
+        <div class="col-12 col-md-6">
+          <label for="device" class="form-label">Device</label>
+          <input id="device" name="device" class="form-control" placeholder="e.g. Compact Space Heater" required />
+        </div>
+        <div class="col-12 col-md-6">
+          <label for="action" class="form-label">Action</label>
+          <input id="action" name="action" class="form-control" placeholder="e.g. Toggle" required />
+        </div>
+        <div class="col-12">
+          <label for="formats" class="form-label">Formats JSON</label>
+          <textarea id="formats" name="formats" rows="6" class="form-control" placeholder='[{"format": "raw", "data": ["+9000 -4500 ..."]}]' required></textarea>
+        </div>
+        <div class="col-12">
+          <button type="submit" class="btn btn-success">Save Pattern</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</section>
+{% endblock %}

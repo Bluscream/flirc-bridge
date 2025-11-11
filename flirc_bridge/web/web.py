@@ -208,11 +208,23 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
             records = export_patterns(session)
         context = _build_template_context(
             request,
-            active_page="patterns",
+            active_page="send",
             extra={"patterns": records},
             app_context={"patterns": records, "requiresToken": bool(settings.web_token)},
         )
         return templates.TemplateResponse("index.html.jinja", context)
+
+    @app.get("/manage", response_class=HTMLResponse)
+    def manage_page(request: Request):
+        with get_session() as session:
+            records = export_patterns(session)
+        context = _build_template_context(
+            request,
+            active_page="manage",
+            extra={"patterns": records},
+            app_context={"patterns": records, "requiresToken": bool(settings.web_token)},
+        )
+        return templates.TemplateResponse("manage.html.jinja", context)
 
     @app.get("/logs", response_class=HTMLResponse)
     def logs_page(request: Request):
