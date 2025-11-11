@@ -78,7 +78,7 @@ $script:ExecutableJobs = @()
 function Test-Executable($exeName, $arg = "version") {
     if (Get-Command $exeName -ErrorAction SilentlyContinue) {
         Write-Host "==> $exeName $arg (running asynchronously)" -ForegroundColor Green
-        $job = Start-Job -Name "Test-$exeName" -ArgumentList $exeName, $arg -ScriptBlock {
+        $job = Start-Job -Name "$exeName $arg" -ArgumentList $exeName, $arg -ScriptBlock {
             param($exeName, $arg)
             try {
                 & $exeName $arg 2>&1
@@ -97,6 +97,8 @@ function Test-Executable($exeName, $arg = "version") {
 if ($Test) {
     Test-Executable "irtools"
     Test-Executable "flirc_util"
+    Test-Executable "flirc_util" "unit_test"
+    Test-Executable "flirc_util" "device_log"
     if ($script:ExecutableJobs.Count -gt 0) {
         Write-Host "==> Awaiting asynchronous tool checks" -ForegroundColor Cyan
         foreach ($job in $script:ExecutableJobs) {

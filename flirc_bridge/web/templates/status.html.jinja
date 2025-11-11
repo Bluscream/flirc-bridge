@@ -55,7 +55,7 @@
             if (typeof value === "object") {
                 if (Array.isArray(value)) {
                     const wrapper = document.createElement("div");
-                    wrapper.className = "d-flex flex-wrap gap-1";
+                    wrapper.className = "vstack gap-2";
                     if (value.length === 0) {
                         const badge = document.createElement("span");
                         badge.className = "badge bg-secondary-subtle text-white";
@@ -63,11 +63,32 @@
                         wrapper.appendChild(badge);
                         return wrapper;
                     }
-                    for (const item of value) {
-                        const badge = document.createElement("span");
-                        badge.className = "badge bg-dark-subtle text-white";
-                        badge.textContent = stringify(item);
-                        wrapper.appendChild(badge);
+                    const primitives = document.createElement("div");
+                    primitives.className = "d-flex flex-wrap gap-1";
+                    let hasPrimitive = false;
+                    value.forEach((item, index) => {
+                        if (item && typeof item === "object") {
+                            const card = document.createElement("div");
+                            card.className = "card bg-dark-subtle border-0 shadow-sm";
+                            const header = document.createElement("div");
+                            header.className = "card-header bg-transparent border-0 py-2 px-3 text-secondary small";
+                            header.textContent = `Item ${index + 1}`;
+                            const body = document.createElement("div");
+                            body.className = "card-body py-2 px-3";
+                            body.appendChild(buildCardGrid(item, depth + 1));
+                            card.appendChild(header);
+                            card.appendChild(body);
+                            wrapper.appendChild(card);
+                        } else {
+                            hasPrimitive = true;
+                            const badge = document.createElement("span");
+                            badge.className = "badge bg-dark-subtle text-white";
+                            badge.textContent = stringify(item);
+                            primitives.appendChild(badge);
+                        }
+                    });
+                    if (hasPrimitive) {
+                        wrapper.appendChild(primitives);
                     }
                     return wrapper;
                 }

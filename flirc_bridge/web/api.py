@@ -170,11 +170,9 @@ def create_api_router(
             "environment": environment_info,
             "settings": settings_payload,
             "database": db_info,
-            "tools": {
-                "irtools": irtools_summary,
-                "flirc_util": flirc_summary,
-                "cache_generated_at": tool_cache.get("generated_at"),
-            },
+            "irtools": irtools_summary,
+            "flirc_util": flirc_summary,
+            "cached_at": tool_cache.get("generated_at"),
         }
 
     @router.get(
