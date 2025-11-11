@@ -298,17 +298,23 @@ def create_api_router(
         if started_at:
             uptime_seconds = (datetime.utcnow() - started_at).total_seconds()
 
-        db_path = Path(settings_obj.database_path)
         db_info: Dict[str, Any] = {
-            "exists": db_path.exists(),
+            "url": getattr(settings_obj, "database_uri", None),
         }
-        if db_path.exists():
-            try:
-                stat = db_path.stat()
-                db_info["size_bytes"] = stat.st_size
-                db_info["modified"] = stat.st_mtime
-            except OSError as exc:
-                db_info["stat_error"] = str(exc)
+        db_path_value = getattr(settings_obj, "database_path", "") or None
+        if db_path_value:
+            db_path = Path(db_path_value)
+            db_info["path"] = str(db_path)
+            db_info["exists"] = db_path.exists()
+            if db_path.exists():
+                try:
+                    stat = db_path.stat()
+                    db_info["size_bytes"] = stat.st_size
+                    db_info["modified"] = stat.st_mtime
+                except OSError as exc:
+                    db_info["stat_error"] = str(exc)
+        else:
+            db_info["path"] = None
 
         try:
             with get_session() as session:
@@ -811,212 +817,6 @@ def create_api_router(
         if unit_payload is None:
             raise HTTPException(status_code=500, detail="Unit test output unavailable")
         return unit_payload
-
-    # Helper functions -----------------------------------------------------
-
-    def _looks_like_uuid(value: Optional[str]) -> bool:
-        if not value:
-            return False
-        try:
-            UUID(str(value))
-            return True
-        except ValueError:
-            return False
-
-    def _split_pattern_values(raw: str) -> List[str]:
-        if raw is None:
-            return []
-        if "," in raw:
-            return [segment for segment in (part.strip() for part in raw.split(",")) if segment]
-        return [raw.strip()] if raw.strip() else []
-
-    def _load_pattern_data(raw: Optional[str]) -> List[str]:
-        if not raw:
-            return []
-        try:
-            parsed = json.loads(raw)
-        except json.JSONDecodeError:
-            return [raw]
-        if isinstance(parsed, list):
-            return [str(item) for item in parsed]
-        return [str(parsed)]
-
-    def _get_device(session: Session, identifier: Optional[str], name_hint: Optional[str] = None) -> Optional[Device]:
-        if identifier and _looks_like_uuid(identifier):
-            device = session.get(Device, identifier)
-            if device:
-                return device
-        target_name = name_hint or identifier
-        if target_name:
-            return (
-                session.query(Device)
-                .filter(Device.name == target_name)
-                .one_or_none()
-            )
-        return None
-
-    def _get_action(
-        session: Session,
-        identifier: Optional[str],
-        name_hint: Optional[str],
-        device: Optional[Device],
-    ) -> Optional[Action]:
-        if identifier and _looks_like_uuid(identifier):
-            action = session.get(Action, identifier)
-            if action:
-                return action
-        target_name = name_hint or identifier
-        if target_name:
-            query = session.query(Action).filter(Action.name == target_name)
-            if device:
-                query = query.filter(Action.device_id == device.id)
-            return query.one_or_none()
-        return None
-
-    def _merge_send_payload(request: Request, payload: Optional[SendPatternPayload]) -> SendPatternPayload:
-        merged: Dict[str, Any] = {}
-        params = request.query_params
-
-        for key in ["device", "device_name", "action", "action_name", "format", "repeat", "ik", "save"]:
-            if key in params:
-                merged[key] = params.get(key)
-
-        if params.getlist("data"):
-            values: List[str] = []
-            for item in params.getlist("data"):
-                values.extend(_split_pattern_values(item))
-            merged["data"] = values
-
-        if params.getlist("pattern"):
-            pattern_ids = [value for value in params.getlist("pattern") if _looks_like_uuid(value)]
-            pattern_payloads = [value for value in params.getlist("pattern") if not _looks_like_uuid(value)]
-            if pattern_ids:
-                merged["pattern"] = pattern_ids[-1]
-            if pattern_payloads:
-                merged.setdefault("data", [])
-                for value in pattern_payloads:
-                    merged["data"].extend(_split_pattern_values(value))
-
-        if payload is not None:
-            merged.update(
-                payload.model_dump(exclude_unset=True)
-            )
-
-        return SendPatternPayload(**merged)
-
-    def _handle_send(method: str, payload: SendPatternPayload, state: Dict[str, Any]) -> Dict[str, Any]:
-        irtools = state["irtools"]
-        flirc = state["flirc_util"]
-        source = f"{method.upper()} /api/send"
-        results: List[Dict[str, Any]] = []
-
-        with get_session() as session:
-            stored_patterns: List[Pattern] = []
-            device: Optional[Device] = None
-            action: Optional[Action] = None
-
-            if payload.pattern:
-                pattern = session.get(Pattern, payload.pattern)
-                if not pattern:
-                    raise HTTPException(status_code=404, detail="Pattern not found")
-                stored_patterns.append(pattern)
-                action = pattern.action
-                device = action.device if action else None
-            elif payload.action:
-                device = _get_device(session, payload.device, payload.device_name)
-                action = _get_action(session, payload.action, payload.action_name, device)
-                if not action:
-                    raise HTTPException(status_code=404, detail="Action not found")
-                if payload.device and device and action.device_id != device.id:
-                    raise HTTPException(status_code=400, detail="Action does not belong to specified device")
-                if device is None:
-                    device = action.device
-                stored_patterns.extend(sorted(action.patterns, key=lambda p: p.created_at or datetime.min))
-            elif payload.device or payload.device_name:
-                device = _get_device(session, payload.device, payload.device_name)
-                if not device:
-                    raise HTTPException(status_code=404, detail="Device not found")
-                for action in device.actions:
-                    stored_patterns.extend(sorted(action.patterns, key=lambda p: p.created_at or datetime.min))
-
-            if stored_patterns:
-                for pattern in stored_patterns:
-                    action = pattern.action
-                    device = action.device if action else None
-                    pattern_data = _load_pattern_data(pattern.data)
-                    repeat_value = payload.repeat if payload.repeat is not None else pattern.repeat or 1
-                    ik_value = payload.ik if payload.ik is not None else pattern.ik or 23000
-                    response = transmit_pattern(
-                        pattern.format,
-                        pattern_data,
-                        ik_value,
-                        repeat_value,
-                        irtools,
-                        flirc,
-                        device=device.name if device else None,
-                        action=action.name if action else None,
-                        source=source,
-                    )
-                    pattern.sent_at = datetime.utcnow()
-                    session.flush()
-                    results.append(
-                        {
-                            "pattern_id": pattern.id,
-                            "action_id": pattern.action_id,
-                            "device_id": device.id if device else None,
-                            "format": pattern.format,
-                            "repeat": repeat_value,
-                            "ik": ik_value,
-                            "response": response,
-                        }
-                    )
-
-            if payload.data:
-                fmt = payload.format or "raw"
-                data_values = payload.data
-                repeat_value = payload.repeat or 1
-                ik_value = payload.ik or 23000
-                response = transmit_pattern(
-                    fmt,
-                    data_values,
-                    ik_value,
-                    repeat_value,
-                    irtools,
-                    flirc,
-                    device=device.name if device else payload.device_name,
-                    action=action.name if action else payload.action_name,
-                    source=source,
-                )
-                result_entry = {
-                    "pattern_id": None,
-                    "action_id": action.id if action else None,
-                    "device_id": device.id if device else None,
-                    "format": fmt,
-                    "repeat": repeat_value,
-                    "ik": ik_value,
-                    "response": response,
-                }
-
-                if payload.save:
-                    record = PatternRecord(
-                        device_id=payload.device if payload.device and _looks_like_uuid(payload.device) else (device.id if device else None),
-                        device=payload.device_name if payload.device_name else (device.name if device else (None if (payload.device and _looks_like_uuid(payload.device)) else payload.device)),
-                        action_id=payload.action if payload.action and _looks_like_uuid(payload.action) else (action.id if action else None),
-                        action=payload.action_name if payload.action_name else (action.name if action else (None if (payload.action and _looks_like_uuid(payload.action)) else payload.action)),
-                        patterns=[PatternModel(format=fmt, data=data_values, repeat=repeat_value, ik=ik_value)],
-                    )
-                    saved_patterns = pattern_record_to_db(session, record, mqtt=state["mqtt"])
-                    if saved_patterns:
-                        saved_pattern = saved_patterns[-1]
-                        result_entry["saved_pattern_id"] = saved_pattern.id
-                        result_entry["action_id"] = saved_pattern.action_id
-                        result_entry["device_id"] = saved_pattern.action.device_id if saved_pattern.action else result_entry["device_id"]
-                results.append(result_entry)
-
-            if not results:
-                raise HTTPException(status_code=400, detail="No patterns matched the request")
-
-        return {"status": "sent", "count": len(results), "results": results}
 
     return router
 

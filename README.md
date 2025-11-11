@@ -61,7 +61,7 @@ Environment variables (defaults shown):
 
 | Variable                | Default             | Description                                                    |
 | ----------------------- | ------------------- | -------------------------------------------------------------- |
-| `DB_PATH`               | `patterns.db`       | SQLite database location                                       |
+| `DB_URI`                | `sqlite:///patterns.db` | SQLAlchemy connection string (e.g., `sqlite:///patterns.db` or `postgresql://user:pass@host:5432/db`) |
 | `IRTOOLS_PATH`          | `irtools`           | Executable used for IR send/listen                             |
 | `MQTT_BROKER`           | `localhost`         | MQTT broker address                                            |
 | `MQTT_PORT`             | `1883`              | MQTT broker port                                               |

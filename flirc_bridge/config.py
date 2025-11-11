@@ -18,7 +18,8 @@ from .utils import coerce_bool, coerce_float, coerce_int
 class Settings:
     """Application configuration loaded from environment variables."""
 
-    database_path: str = os.environ.get("DB_PATH", "patterns.db")
+    database_uri: str = os.environ.get("DB_URI") or os.environ.get("DB_STRING") or "sqlite:///patterns.db"
+    database_path: Optional[str] = None
     log_file: Optional[str] = os.environ.get("LOG_FILE")
     irtools_path: str = os.environ.get("IRTOOLS_PATH", "irtools")
     flirc_util_path: str = os.environ.get("FLIRC_UTIL_PATH", "flirc_util")
@@ -46,6 +47,13 @@ class Settings:
     web_port: int = coerce_int(os.environ.get("WEB_PORT"), 8000)
     web_reload: bool = coerce_bool(os.environ.get("WEB_RELOAD"), False)
     web_token: str | None = os.environ.get("WEB_TOKEN")
+
+    def __post_init__(self) -> None:
+        if self.database_uri.startswith("sqlite:///"):
+            raw_path = self.database_uri.split("sqlite:///")[-1]
+            self.database_path = raw_path if raw_path else None
+        else:
+            self.database_path = None
 
     @property
     def mqtt_client_id(self) -> str:

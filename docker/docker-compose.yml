@@ -19,7 +19,7 @@ services:
       WEB_TOKEN: ${WEB_TOKEN:-}
       WEB_HOST: 0.0.0.0
       WEB_PORT: 8000
-      DB_PATH: /data/patterns.db
+      DB_URI: ${DB_URI:-sqlite:////data/patterns.db}
       INSTANCE_NAME: ${INSTANCE_NAME:-Flirc MQTT Bridge}
     ports:
       - "${WEB_PORT:-8000}:8000"

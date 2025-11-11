@@ -107,7 +107,7 @@ function Invoke-AppRequest {
         [hashtable]$Body
     )
 
-    $methodEnum = [Microsoft.PowerShell.Commands.WebRequestMethod]::Parse([Microsoft.PowerShell.Commands.WebRequestMethod], $Method, $true)
+    $methodEnum = [System.Enum]::Parse([Microsoft.PowerShell.Commands.WebRequestMethod], $Method, $true)
     $uri = "{0}{1}" -f $script:NormalizedBaseUrl, $Path
     $params = @{
         Uri         = $uri

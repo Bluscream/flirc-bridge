@@ -21,7 +21,7 @@ from sqlalchemy import (
     inspect,
     text,
 )
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import Session, relationship, sessionmaker
 
@@ -118,9 +118,18 @@ class Pattern(Base):
 
 def get_engine() -> Engine:
     settings = get_settings()
-    db_path = resolve_path(settings.database_path)
-    settings.database_path = str(db_path)
-    return create_engine(f"sqlite:///{db_path}", future=True)
+    url = make_url(settings.database_uri)
+    if url.drivername.startswith("sqlite"):
+        if url.database:
+            db_path = resolve_path(url.database)
+            url = url.set(database=str(db_path))
+            settings.database_path = str(db_path)
+        else:
+            settings.database_path = None
+    else:
+        settings.database_path = None
+    settings.database_uri = str(url)
+    return create_engine(str(url), future=True)
 
 
 engine = get_engine()

@@ -82,9 +82,9 @@
       <Description>Bind address inside the container</Description>
     </Variable>
     <Variable>
-      <Name>DB_PATH</Name>
-      <Value>/data/patterns.db</Value>
-      <Description>SQLite database path inside the container</Description>
+      <Name>DB_URI</Name>
+      <Value>sqlite:////data/patterns.db</Value>
+      <Description>SQLAlchemy database URI (e.g. sqlite:////data/patterns.db)</Description>
     </Variable>
     <Variable>
       <Name>INSTANCE_NAME</Name>
