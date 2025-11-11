@@ -8,6 +8,13 @@ This project recreates the functionality of the `breeily/flirc_bridge` container
 - MQTT discovery and command handling so patterns appear as buttons in Home Assistant, while still allowing custom pattern payloads over MQTT.
 - A ready-to-run Docker container (Linux) and native execution support on Windows.
 
+## Screenshots
+
+| Main Page | /manage | /status |
+|----------|----------|----------|
+| ![](https://files.catbox.moe/a1h1sm.png) | ![](https://files.catbox.moe/1vd3oq.png)  | ![](https://files.catbox.moe/pkz176.png)  |
+
+
 ## Features
 
 - **Pattern management UI** – visit `/` to view and manage stored patterns (grouped by device/action, with Send/Edit/Delete controls).
