@@ -119,22 +119,22 @@ class FlircTool(BaseTool):
         normalized_format = fmt.value.lower()
         if normalized_format == ProtocolFormat.PRONTO.value:
             joined = ",".join(str(item) for item in data)
-            args.append(f'-p="{joined}"') # -p, --pronto         send a pronto pattern
+            args.append(f'--pronto="{joined}"') # -p, --pronto         send a pronto pattern
         elif normalized_format in {ProtocolFormat.CSV.value, "array"}:
             joined = ",".join(str(item) for item in data)
-            args.append(f'-c="{joined}"') # -c, --csv            8248,1291,212,...or 0,8248...or 8248, 1291..
+            args.append(f'--csv="{joined}"') # -c, --csv            8248,1291,212,...or 0,8248...or 8248, 1291..
         else:
             joined = "".join(str(item) for item in data)
-            args.append(f'-x="{joined}"') # -x, --raw            +8248 -1291 +212 ...
+            args.append(f'--raw="{joined}"') # -x, --raw            +8248 -1291 +212 ...
         if carrier is not None:
-            args.append(f'-i={carrier}') # -i, --ik             set the interkey delay between rep. frames
+            args.append(f'--ik={carrier}') # -i, --ik             set the interkey delay between rep. frames
         if repeat is not None:
-            args.append(f'-r={repeat}') # -r, --repeat         number of times to repeat pattern
+            args.append(f'--repeat={repeat}') # -r, --repeat         number of times to repeat pattern
         result = self.run(*args)
         return (result.stdout or result.stderr or "").strip()
 
     def stop_ir(self) -> None:
-        self.run("sendir", "-k")
+        self.run("sendir", "--kill")
 
 
 __all__ = ["BaseTool", "FlircTool", "ToolError", "ProtocolFormat"]

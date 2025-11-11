@@ -1,0 +1,259 @@
+{% extends "layout.html.jinja" %}
+
+{% block title %}{{ settings.instance_name }} - Status · Flirc Bridge{% endblock %}
+
+{% block content %}
+<section class="mb-4">
+    <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3 mb-3">
+        <div>
+            <h2 class="h4 text-white mb-0">System Status</h2>
+            <p class="text-secondary mb-0">Live data from <code>/api/status</code></p>
+        </div>
+        <div class="d-flex gap-2">
+            <button id="refresh-status" class="btn btn-outline-light btn-sm">Refresh</button>
+            <button id="download-status" class="btn btn-outline-secondary btn-sm">Download JSON</button>
+        </div>
+    </div>
+    <div id="status-alert" class="alert alert-info" role="alert">Loading status…</div>
+    <div id="status-grid" class="row g-3"></div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    (function () {
+        const grid = document.getElementById("status-grid");
+        const alertBox = document.getElementById("status-alert");
+        const refreshButton = document.getElementById("refresh-status");
+        const downloadButton = document.getElementById("download-status");
+        let lastStatus = null;
+
+        function humanize(key) {
+            return key
+                .replace(/_/g, " ")
+                .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+                .replace(/\b\w/g, (char) => char.toUpperCase());
+        }
+
+        function stringify(value) {
+            if (value === null || value === undefined) {
+                return "—";
+            }
+            if (typeof value === "boolean") {
+                return value ? "Enabled" : "Disabled";
+            }
+            return String(value);
+        }
+
+        function buildValueElement(value, depth) {
+            if (value === null || value === undefined) {
+                const span = document.createElement("span");
+                span.textContent = "—";
+                return span;
+            }
+
+            if (typeof value === "object") {
+                if (Array.isArray(value)) {
+                    const wrapper = document.createElement("div");
+                    wrapper.className = "d-flex flex-wrap gap-1";
+                    if (value.length === 0) {
+                        const badge = document.createElement("span");
+                        badge.className = "badge bg-secondary-subtle text-white";
+                        badge.textContent = "None";
+                        wrapper.appendChild(badge);
+                        return wrapper;
+                    }
+                    for (const item of value) {
+                        const badge = document.createElement("span");
+                        badge.className = "badge bg-dark-subtle text-white";
+                        badge.textContent = stringify(item);
+                        wrapper.appendChild(badge);
+                    }
+                    return wrapper;
+                }
+
+                return buildCardGrid(value, depth + 1);
+            }
+
+            const span = document.createElement("span");
+            span.textContent = stringify(value);
+            return span;
+        }
+
+        function buildLeafCard(key, value, depth) {
+            const card = document.createElement("div");
+            card.className = "card bg-dark-subtle border-0 shadow-sm h-100";
+
+            const body = document.createElement("div");
+            body.className = "card-body py-2 px-3";
+
+            const label = document.createElement("div");
+            label.className = "text-secondary small text-uppercase fw-semibold";
+            label.textContent = humanize(key);
+
+            const content = document.createElement("div");
+            content.className = "text-white small";
+            content.appendChild(buildValueElement(value, depth));
+
+            body.appendChild(label);
+            body.appendChild(content);
+            card.appendChild(body);
+            return card;
+        }
+
+        function buildCardGrid(obj, depth) {
+            const row = document.createElement("div");
+            row.className = "row g-2";
+            const entries = Object.entries(obj);
+
+            if (entries.length === 0) {
+                const col = document.createElement("div");
+                col.className = "col-12";
+                const empty = document.createElement("div");
+                empty.className = "text-secondary small";
+                empty.textContent = "No data available.";
+                col.appendChild(empty);
+                row.appendChild(col);
+                return row;
+            }
+
+            for (const [key, value] of entries) {
+                const col = document.createElement("div");
+                col.className = depth === 0 ? "col-12 col-md-6" : "col-12 col-md-6";
+
+                if (value && typeof value === "object" && !Array.isArray(value)) {
+                    const nested = document.createElement("div");
+                    nested.className = "card bg-body-tertiary border-0 shadow-sm h-100";
+
+                    const header = document.createElement("div");
+                    header.className = "card-header bg-transparent border-secondary-subtle py-2 px-3";
+                    header.innerHTML = `<h4 class="h6 text-white mb-0">${humanize(key)}</h4>`;
+
+                    const body = document.createElement("div");
+                    body.className = "card-body py-2 px-3";
+                    body.appendChild(buildCardGrid(value, depth + 1));
+
+                    nested.appendChild(header);
+                    nested.appendChild(body);
+                    col.appendChild(nested);
+                } else {
+                    col.appendChild(buildLeafCard(key, value, depth));
+                }
+
+                row.appendChild(col);
+            }
+
+            return row;
+        }
+
+        function buildCard(key, value, depth = 0) {
+            const card = document.createElement("div");
+            card.className = "card bg-body-tertiary border-0 shadow h-100";
+
+            const header = document.createElement("div");
+            header.className = "card-header bg-transparent border-secondary-subtle py-3";
+            header.innerHTML = `<h3 class="h5 text-white mb-0">${humanize(key)}</h3>`;
+            card.appendChild(header);
+
+            const body = document.createElement("div");
+            body.className = "card-body py-3";
+            if (value && typeof value === "object" && !Array.isArray(value)) {
+                body.appendChild(buildCardGrid(value, depth));
+            } else {
+                body.appendChild(buildValueElement(value, depth));
+            }
+            card.appendChild(body);
+
+            return card;
+        }
+
+        function renderStatus(data) {
+            lastStatus = data;
+            grid.innerHTML = "";
+            if (alertBox) {
+                alertBox.classList.remove("alert-info", "alert-danger");
+                alertBox.classList.add("alert-success");
+                alertBox.textContent = "Status updated at " + new Date().toLocaleTimeString();
+            }
+
+            if (!data || typeof data !== "object") {
+                grid.innerHTML = '<div class="col-12"><div class="alert alert-warning">No status data available.</div></div>';
+                return;
+            }
+
+            const entries = Object.entries(data);
+            if (entries.length === 0) {
+                grid.innerHTML = '<div class="col-12"><div class="alert alert-secondary">Status payload was empty.</div></div>';
+                return;
+            }
+
+            for (const [key, value] of entries) {
+                const col = document.createElement("div");
+                col.className = "col-12 col-xl-6";
+                col.appendChild(buildCard(key, value));
+                grid.appendChild(col);
+            }
+        }
+
+        async function loadStatus({ refresh = false } = {}) {
+            let url = "/api/status";
+            if (refresh) {
+                url += "?refresh=1";
+            }
+            let headers = buildHeaders();
+            if (requiresToken && headers === null) {
+                return;
+            }
+            headers = headers || {};
+            try {
+                const response = await fetch(url, { headers });
+                if (!response.ok) {
+                    if (!(await handleAuthResponse(response))) {
+                        return;
+                    }
+                    const text = await response.text();
+                    if (alertBox) {
+                        alertBox.classList.remove("alert-info");
+                        alertBox.classList.add("alert-danger");
+                        alertBox.textContent = "Failed to load status: " + (text || response.statusText);
+                    }
+                    return;
+                }
+                const data = await response.json();
+                renderStatus(data);
+            } catch (error) {
+                if (alertBox) {
+                    alertBox.classList.remove("alert-info");
+                    alertBox.classList.add("alert-danger");
+                    alertBox.textContent = "Failed to load status: " + error;
+                }
+            }
+        }
+
+        function downloadStatus() {
+            if (!lastStatus) {
+                showToast("Status data not loaded yet", "warning", 3000);
+                return;
+            }
+            const blob = new Blob([JSON.stringify(lastStatus, null, 2)], { type: "application/json" });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = "flirc-bridge-status.json";
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+        }
+
+        if (refreshButton) {
+            refreshButton.addEventListener("click", () => loadStatus({ refresh: true }));
+        }
+        if (downloadButton) {
+            downloadButton.addEventListener("click", downloadStatus);
+        }
+
+        loadStatus({ refresh: false });
+    })();
+</script>
+{% endblock %}

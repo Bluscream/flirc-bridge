@@ -1,6 +1,7 @@
 param(
     [switch]$Detached,
-    [switch]$Internal
+    [switch]$Internal,
+    [switch]$Test
 )
 
 $ErrorActionPreference = "Stop"
@@ -72,18 +73,46 @@ if (-not $flircUtil) {
     }
 }
 
+$script:ExecutableJobs = @()
+
 function Test-Executable($exeName, $arg = "version") {
     if (Get-Command $exeName -ErrorAction SilentlyContinue) {
-        Write-Host "==> $exeName $arg" -ForegroundColor Green
-        & $exeName $arg | Out-Host
+        Write-Host "==> $exeName $arg (running asynchronously)" -ForegroundColor Green
+        $job = Start-Job -Name "Test-$exeName" -ArgumentList $exeName, $arg -ScriptBlock {
+            param($exeName, $arg)
+            try {
+                & $exeName $arg 2>&1
+            }
+            catch {
+                $_
+            }
+        }
+        $script:ExecutableJobs += $job
     }
     else {
         Write-Warning "$exeName not found on PATH. Set IRTOOLS_PATH in .env if installed elsewhere."
     }
 }
 
-Test-Executable "irtools"
-Test-Executable "flirc_util"
+if ($Test) {
+    Test-Executable "irtools"
+    Test-Executable "flirc_util"
+    if ($script:ExecutableJobs.Count -gt 0) {
+        Write-Host "==> Awaiting asynchronous tool checks" -ForegroundColor Cyan
+        foreach ($job in $script:ExecutableJobs) {
+            Wait-Job -Job $job | Out-Null
+            $jobOutput = Receive-Job -Job $job
+            if ($jobOutput) {
+                Write-Host ("---- Output from {0} ----" -f $job.Name) -ForegroundColor DarkCyan
+                $jobOutput | Out-Host
+            }
+            if ($job.State -ne "Completed") {
+                Write-Warning ("Job {0} finished with state {1}" -f $job.Name, $job.State)
+            }
+            Remove-Job -Job $job
+        }
+    }
+}
 
 Write-Host "==> Launching flirc-bridge service (Ctrl+C to stop)" -ForegroundColor Cyan
 python ".\run_flirc_bridge.py"

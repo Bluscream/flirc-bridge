@@ -11,25 +11,7 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(dotenv_path=BASE_DIR / ".env", override=False)
 
-
-def _bool(value: str | None, default: bool = False) -> bool:
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _int(value: str | None, default: int) -> int:
-    try:
-        return int(value) if value is not None else default
-    except ValueError:
-        return default
-
-
-def _float(value: str | None, default: float) -> float:
-    try:
-        return float(value) if value is not None else default
-    except ValueError:
-        return default
+from .utils import coerce_bool, coerce_float, coerce_int
 
 
 @dataclass(slots=True)
@@ -40,34 +22,39 @@ class Settings:
     log_file: Optional[str] = os.environ.get("LOG_FILE")
     irtools_path: str = os.environ.get("IRTOOLS_PATH", "irtools")
     flirc_util_path: str = os.environ.get("FLIRC_UTIL_PATH", "flirc_util")
-    ir_listen_timeout: int = _int(os.environ.get("IR_LISTEN_TIMEOUT"), 10)
-    auto_store_patterns: bool = _bool(os.environ.get("AUTO_STORE_PATTERNS"), False)
+    ir_listen_timeout: int = coerce_int(os.environ.get("IR_LISTEN_TIMEOUT"), 10)
+    auto_store_patterns: bool = coerce_bool(os.environ.get("AUTO_STORE_PATTERNS"), False)
 
-    mqtt_enabled: bool = _bool(os.environ.get("MQTT_ENABLED"), True)
+    mqtt_enabled: bool = coerce_bool(os.environ.get("MQTT_ENABLED"), True)
     mqtt_broker: str = os.environ.get("MQTT_BROKER", "localhost")
-    mqtt_port: int = _int(os.environ.get("MQTT_PORT"), 1883)
+    mqtt_port: int = coerce_int(os.environ.get("MQTT_PORT"), 1883)
     mqtt_username: str | None = os.environ.get("MQTT_USERNAME", "homeassistant")
     mqtt_password: str | None = os.environ.get("MQTT_PASSWORD")
     mqtt_prefix: str = os.environ.get("MQTT_PREFIX") or os.environ.get("MQTT_CLIENT_ID", "flirc_bridge")
-    mqtt_device_name: str = os.environ.get("MQTT_DEVICE_NAME", "Flirc MQTT Bridge")
+    # Used as MQTT device name and website title
+    instance_name: str = os.environ.get("INSTANCE_NAME") or os.environ.get("MQTT_DEVICE_NAME", "Flirc MQTT Bridge")
     mqtt_base_topic: str = os.environ.get("MQTT_BASE_TOPIC", "flirc_bridge")
     mqtt_discovery_prefix: str = os.environ.get("MQTT_DISCOVERY_PREFIX", "homeassistant")
-    mqtt_retain: bool = _bool(os.environ.get("MQTT_RETAIN"), True)
-    mqtt_cleanup_enabled: bool = _bool(os.environ.get("MQTT_CLEANUP_ENABLED"), True)
-    mqtt_cleanup_collect_seconds: float = _float(os.environ.get("MQTT_CLEANUP_COLLECT_SECONDS"), 3.0)
-    mqtt_cleanup_retain_only: bool = _bool(os.environ.get("MQTT_CLEANUP_RETAIN_ONLY"), False)
+    mqtt_retain: bool = coerce_bool(os.environ.get("MQTT_RETAIN"), True)
+    mqtt_cleanup_enabled: bool = coerce_bool(os.environ.get("MQTT_CLEANUP_ENABLED"), True)
+    mqtt_cleanup_collect_seconds: float = coerce_float(os.environ.get("MQTT_CLEANUP_COLLECT_SECONDS"), 3.0)
+    mqtt_cleanup_retain_only: bool = coerce_bool(os.environ.get("MQTT_CLEANUP_RETAIN_ONLY"), False)
     mqtt_cleanup_match: str = os.environ.get("MQTT_CLEANUP_MATCH", "flirc")
 
-    web_enabled: bool = _bool(os.environ.get("WEB_ENABLED"), True)
+    web_enabled: bool = coerce_bool(os.environ.get("WEB_ENABLED"), True)
     web_host: str = os.environ.get("WEB_HOST", "0.0.0.0")
-    web_port: int = _int(os.environ.get("WEB_PORT"), 8000)
-    web_reload: bool = _bool(os.environ.get("WEB_RELOAD"), False)
+    web_port: int = coerce_int(os.environ.get("WEB_PORT"), 8000)
+    web_reload: bool = coerce_bool(os.environ.get("WEB_RELOAD"), False)
     web_token: str | None = os.environ.get("WEB_TOKEN")
 
     @property
     def mqtt_client_id(self) -> str:
         """Backwards compatible alias for the MQTT prefix."""
         return self.mqtt_prefix
+
+    @property
+    def mqtt_device_name(self) -> str:
+        return self.instance_name
 
 
 def get_settings() -> Settings:

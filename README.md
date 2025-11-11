@@ -51,7 +51,7 @@ Environment variables (defaults shown):
 | `MQTT_USERNAME`         | `homeassistant`     | MQTT username                                                  |
 | `MQTT_PASSWORD`         | _(unset)_           | MQTT password                                                  |
 | `MQTT_PREFIX`           | `flirc_bridge`      | MQTT topic prefix and discovery identifier                     |
-| `MQTT_DEVICE_NAME`      | `Flirc MQTT Bridge` | Friendly instance name used in MQTT device metadata and web UI |
+| `INSTANCE_NAME`         | `Flirc MQTT Bridge` | Used as MQTT device name and website title |
 | `MQTT_BASE_TOPIC`       | `flirc_bridge`      | Base MQTT topic                                                |
 | `MQTT_DISCOVERY_PREFIX` | `homeassistant`     | Discovery prefix                                               |
 | `MQTT_RETAIN`           | `true`              | Retain discovery messages                                      |
@@ -80,7 +80,7 @@ MQTT_BROKER=192.168.2.4
 MQTT_PORT=1883
 MQTT_USERNAME=homeassistant
 MQTT_PASSWORD=super_secret
-MQTT_DEVICE_NAME=Living Room Bridge
+INSTANCE_NAME=Living Room Bridge
 "@ | Out-File -Encoding utf8 .env
 
 # Run in foreground (Ctrl+C to stop)

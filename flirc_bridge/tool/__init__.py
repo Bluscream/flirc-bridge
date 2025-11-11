@@ -25,7 +25,7 @@ _TOOLS_INITIALIZED = False
 
 def initialize_tools(refresh: bool = False) -> dict:
     """Initialize tooling and cache metadata."""
-    global _TOOLS_INITIALIZED, _TOOL_CACHE
+    global _TOOLS_INITIALIZED, _TOOL_CACHE, _IRTOOLS, _FLIRC_UTIL
     with _TOOL_LOCK:
         if not refresh and _TOOLS_INITIALIZED:
             return _TOOL_CACHE
@@ -43,7 +43,6 @@ def initialize_tools(refresh: bool = False) -> dict:
                 cache[key] = future.result()
 
         cache["generated_at"] = datetime.utcnow().isoformat()
-        global _IRTOOLS, _FLIRC_UTIL
         _IRTOOLS = irtools
         _FLIRC_UTIL = flirc_util
         _TOOL_CACHE = cache

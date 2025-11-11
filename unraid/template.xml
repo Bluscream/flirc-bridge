@@ -86,6 +86,11 @@
       <Value>/data/patterns.db</Value>
       <Description>SQLite database path inside the container</Description>
     </Variable>
+    <Variable>
+      <Name>INSTANCE_NAME</Name>
+      <Value>Flirc MQTT Bridge</Value>
+      <Description>Friendly instance name shown in MQTT discovery and web UI</Description>
+    </Variable>
   </Environment>
   <Data>
     <Volume>

@@ -1,0 +1,79 @@
+{% extends "layout.html.jinja" %}
+
+{% block title %}{{ settings.instance_name }} - Logs · Flirc Bridge{% endblock %}
+
+{% block content %}
+<section class="mb-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="h4 text-white mb-0">Device Logs</h2>
+        <div class="d-flex gap-2">
+            <button id="refresh-logs" class="btn btn-outline-light btn-sm">Refresh</button>
+            <button id="copy-logs" class="btn btn-outline-secondary btn-sm">Copy</button>
+        </div>
+    </div>
+    <div class="card bg-body-tertiary border-0 shadow-lg">
+        <div class="card-body">
+            <label for="logs-output" class="form-label">/api/logs output</label>
+            <textarea id="logs-output" class="form-control font-monospace" rows="20" readonly placeholder="Loading logs..."></textarea>
+        </div>
+    </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    (function () {
+        const output = document.getElementById("logs-output");
+        const refreshButton = document.getElementById("refresh-logs");
+        const copyButton = document.getElementById("copy-logs");
+
+        async function loadLogs({ refresh = true } = {}) {
+            if (!output) return;
+            let url = "/api/logs";
+            if (refresh) {
+                url += url.includes("?") ? "&" : "?";
+                url += "refresh=1";
+            }
+            let headers = buildHeaders();
+            if (requiresToken && headers === null) {
+                return;
+            }
+            headers = headers || {};
+            try {
+                const response = await fetch(url, { headers });
+                if (!response.ok) {
+                    if (!(await handleAuthResponse(response))) {
+                        return;
+                    }
+                    const text = await response.text();
+                    showToast("Failed to load logs: " + (text || response.statusText), "danger", 5000);
+                    return;
+                }
+                const text = await response.text();
+                output.value = text.trim();
+            } catch (error) {
+                showToast("Failed to load logs: " + error, "danger", 5000);
+            }
+        }
+
+        async function copyLogs() {
+            if (!output) return;
+            try {
+                await navigator.clipboard.writeText(output.value || "");
+                showToast("Logs copied to clipboard", "success", 2000);
+            } catch (error) {
+                showToast("Unable to copy logs: " + error, "warning", 4000);
+            }
+        }
+
+        if (refreshButton) {
+            refreshButton.addEventListener("click", () => loadLogs({ refresh: true }));
+        }
+        if (copyButton) {
+            copyButton.addEventListener("click", copyLogs);
+        }
+
+        loadLogs({ refresh: true });
+    })();
+</script>
+{% endblock %}

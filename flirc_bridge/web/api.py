@@ -8,33 +8,15 @@ import sys
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-from types import SimpleNamespace
+from typing import Any, Callable, Dict, Optional
 
-from fastapi import Body, Depends, FastAPI, Header, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
+from fastapi.responses import PlainTextResponse
 
-from ..application import BridgeRuntime
-from ..config import Settings, get_settings
 from ..database import Action, Device, Pattern, get_session
-from ..tool import (
-    FlircUtil,
-    FlircUtilError,
-    IRTools,
-    IRToolsError,
-    ToolError,
-    get_flirc_util,
-    get_irtools,
-    get_tool_cache,
-    initialize_tools,
-    send_ir_pattern,
-)
 from ..mqtt import MQTTManager
 from ..schemas import (
     ErrorResponse,
-    PatternListResponse,
     PatternFormatLiteral,
     PatternRecord,
     ReceivePatternRequest,
@@ -42,171 +24,37 @@ from ..schemas import (
     SendPatternRequest,
 )
 from ..services import delete_pattern, export_patterns, pattern_record_to_db
+from ..tool import (
+    FlircUtil,
+    FlircUtilError,
+    IRTools,
+    IRToolsError,
+    ToolError,
+    get_tool_cache,
+)
+from ..utils import should_refresh
 
 logger = logging.getLogger(__name__)
 
 
-templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "templates"))
-APP_VERSION = "0.1.0"
+LoadPatternFn = Callable[[str, str, Optional[PatternFormatLiteral]], Dict[str, Any]]
+TransmitPatternFn = Callable[
+    [str, Optional[Any], Optional[int], Optional[int], IRTools, FlircUtil],
+    Dict[str, Any],
+]
 
 
-def _parse_version_output(output: str, tool_hint: Optional[str] = None) -> Dict[str, Any]:
-    text = (output or "").strip()
-    data: Dict[str, Any] = {"raw": text}
-    if tool_hint:
-        data["tool"] = tool_hint
-    return data
+def create_api_router(
+    *,
+    runtime,
+    get_app_state: Callable[[], Dict[str, Any]],
+    require_auth: Callable[..., None],
+    load_stored_pattern: LoadPatternFn,
+    transmit_pattern: Callable[..., Dict[str, Any]],
+) -> APIRouter:
+    router = APIRouter()
 
-
-def _collect_version_info(command: str) -> Dict[str, Any]:
-    """Deprecated helper retained for backwards compatibility."""
-    return {"command": command, "error": "deprecated"}
-
-
-def _should_refresh(value: Optional[str]) -> bool:
-    if value is None:
-        return False
-    return value.strip().lower() in {"1", "true", "yes", "on", "refresh"}
-
-
-def create_app(settings_override: Optional[Settings] = None, runtime: Optional[BridgeRuntime] = None) -> FastAPI:
-    if runtime is None:
-        runtime = BridgeRuntime(settings_override or get_settings())
-    runtime.start()
-    initialize_tools()
-    settings = runtime.settings
-
-    irtools = runtime.irtools
-    flirc_util = runtime.flirc_util
-    app = FastAPI(
-        title=f"{settings.mqtt_device_name} - Flirc Bridge",
-        version=APP_VERSION,
-        default_response_class=JSONResponse,
-    )
-    app.mount(
-        "/static",
-        StaticFiles(directory=Path(__file__).resolve().parent / "static"),
-        name="static",
-    )
-    app.state.started_at = datetime.utcnow()
-
-    def require_auth(request: Request, header_token: Optional[str] = Header(default=None, alias="X-Auth-Token")) -> None:
-        if not settings.web_token:
-            return
-        provided = header_token or request.query_params.get("token")
-        auth_header = request.headers.get("Authorization")
-        if auth_header and auth_header.lower().startswith("bearer "):
-            provided = auth_header.split(" ", 1)[1].strip()
-        if provided == settings.web_token:
-            return
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
-
-    def get_app_state():
-        return {
-            "settings": settings,
-            "irtools": get_irtools(),
-            "flirc_util": get_flirc_util(),
-            "mqtt": runtime.mqtt_manager,
-            "runtime": runtime,
-        }
-
-    @app.on_event("shutdown")
-    def shutdown_event():
-        runtime.stop()
-
-    def _load_stored_pattern(
-        device: str,
-        action: str,
-        format_name: Optional[PatternFormatLiteral] = None,
-    ) -> Dict[str, Any]:
-        with get_session() as session:
-            query = (
-                session.query(Pattern)
-                .join(Action)
-                .join(Device)
-                .filter(Device.name == device, Action.name == action)
-            )
-            if format_name:
-                query = query.filter(Pattern.format == format_name)
-            pattern: Optional[Pattern] = query.first()
-            if not pattern:
-                raise HTTPException(status_code=404, detail="Stored pattern not found")
-            payload = pattern.data or "[]"
-            fmt = pattern.format
-            pattern_hash = pattern.hash
-        logger.info(
-            "Loaded stored pattern device=%s action=%s format=%s hash=%s",
-            device,
-            action,
-            fmt,
-            pattern_hash,
-        )
-        try:
-            data = json.loads(payload)
-        except json.JSONDecodeError as exc:
-            raise HTTPException(status_code=500, detail=f"Stored pattern is invalid JSON: {exc}") from exc
-        return {"format": fmt, "data": data}
-
-    def _transmit_pattern(
-        fmt: str,
-        data: Optional[List[str]],
-        carrier: Optional[int],
-        repeat: Optional[int],
-        irtools: IRTools,
-        flirc: FlircUtil,
-        *,
-        device: Optional[str] = None,
-        action: Optional[str] = None,
-        source: str = "/api/send",
-    ) -> Dict[str, Any]:
-        data_repr = data if data is None else json.dumps(data)
-        if device and action:
-            logger.info(
-                "[%s] Dispatching stored pattern device=%s action=%s format=%s carrier=%s repeat=%s data=%s",
-                source,
-                device,
-                action,
-                fmt,
-                carrier,
-                repeat,
-                data_repr,
-            )
-        else:
-            logger.info(
-                "[%s] Dispatching custom pattern format=%s carrier=%s repeat=%s data=%s",
-                source,
-                fmt,
-                carrier,
-                repeat,
-                data_repr,
-            )
-        try:
-            result = send_ir_pattern(
-                fmt,
-                data or [],
-                carrier=carrier,
-                repeat=repeat,
-                irtools=irtools,
-                flirc_util=flirc,
-            )
-            logger.info(
-                "[%s] IR send successful via %s: %s",
-                source,
-                result["tool"],
-                (result["output"] or "").strip(),
-            )
-            if result.get("fallback"):
-                logger.warning(
-                    "[%s] IRTools failed (%s); flirc_util fallback succeeded",
-                    source,
-                    result.get("irtools_error"),
-                )
-            return {"status": "sent", **result}
-        except ToolError as exc:
-            raise HTTPException(status_code=500, detail=str(exc))
-
-    # ----------------------------------------------------------- web interface
-    @app.get(
+    @router.get(
         "/api/status",
         response_model=dict,
         summary="Return component status and version information",
@@ -228,7 +76,6 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
 
         db_path = Path(settings_obj.database_path)
         db_info: Dict[str, Any] = {
-            "path": str(db_path),
             "exists": db_path.exists(),
         }
         if db_path.exists():
@@ -236,7 +83,7 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
                 stat = db_path.stat()
                 db_info["size_bytes"] = stat.st_size
                 db_info["modified"] = stat.st_mtime
-            except OSError as exc:  # pragma: no cover - filesystem issue
+            except OSError as exc:
                 db_info["stat_error"] = str(exc)
 
         try:
@@ -244,10 +91,10 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
                 db_info["device_count"] = session.query(Device).count()
                 db_info["action_count"] = session.query(Action).count()
                 db_info["pattern_count"] = session.query(Pattern).count()
-        except Exception as exc:  # pragma: no cover - database unavailable
+        except Exception as exc:
             db_info["error"] = str(exc)
 
-        refresh_flag = _should_refresh(request.query_params.get("refresh"))
+        refresh_flag = should_refresh(request.query_params.get("refresh"))
         tool_error: Optional[str] = None
         try:
             tool_cache = get_tool_cache(refresh=refresh_flag)
@@ -256,18 +103,20 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
             tool_error = str(exc)
 
         irtools_cache = tool_cache.get("irtools", {})
+        irtools_summary = None
         if irtools_cache:
-            irtools_info = dict(irtools_cache.get("version_info") or {})
-            irtools_info.setdefault("tool", "irtools")
-            irtools_info["path"] = irtools_cache.get("path")
-            irtools_info["filesize"] = irtools_cache.get("filesize")
-            irtools_info["timestamp"] = irtools_cache.get("timestamp")
-            irtools_info["version_raw"] = irtools_cache.get("version_raw")
+            irtools_summary = dict(irtools_cache.get("version_info") or {})
+            irtools_summary["path"] = irtools_cache.get("path")
+            irtools_summary["filesize"] = irtools_cache.get("filesize")
+            irtools_summary["timestamp"] = irtools_cache.get("timestamp")
+            irtools_summary.pop("version_raw", None)
         else:
             try:
-                irtools_info = irtools_instance.version_info()
+                irtools_summary = irtools_instance.version_info()
             except IRToolsError as exc:
-                irtools_info = {"tool": "irtools", "error": str(exc if tool_error is None else tool_error)}
+                irtools_summary = {"error": str(exc if tool_error is None else tool_error)}
+        if tool_error and not irtools_cache and irtools_summary is not None and "error" not in irtools_summary:
+            irtools_summary["error"] = tool_error
 
         flirc_cache = tool_cache.get("flirc_util", {})
         if flirc_cache:
@@ -282,14 +131,11 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
         details = flirc_settings.get("details", {}) if isinstance(flirc_settings, dict) else {}
         settings_map = flirc_settings.get("settings", {}) if isinstance(flirc_settings, dict) else {}
         flirc_summary = {
-            "tool": "flirc_util",
             "path": flirc_cache.get("path"),
             "filesize": flirc_cache.get("filesize"),
             "timestamp": flirc_cache.get("timestamp"),
-            "version": flirc_cache.get("version") or flirc_settings.get("version") if isinstance(flirc_settings, dict) else None,
-            "settings_raw": flirc_cache.get("settings_raw"),
-            "device_log": flirc_cache.get("device_log"),
-            "unit_test": flirc_cache.get("unit_test"),
+            "version": flirc_cache.get("version")
+            or (flirc_settings.get("version") if isinstance(flirc_settings, dict) else None),
             "fw_version": details.get("fw_version"),
             "sku": details.get("sku") or settings_map.get("product_sku"),
             "branch": details.get("branch"),
@@ -304,9 +150,7 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
             "recorded_keys": flirc_settings.get("recorded_keys", []) if isinstance(flirc_settings, dict) else [],
         }
         if "error" in flirc_settings:
-            flirc_summary = {"tool": "flirc_util", "error": flirc_settings["error"]}
-        if tool_error and not irtools_cache and "error" not in irtools_info:
-            irtools_info["error"] = tool_error
+            flirc_summary = {"error": flirc_settings["error"]}
 
         environment_info = {
             "python_version": sys.version.split()[0],
@@ -315,61 +159,25 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
             "executable": sys.executable,
         }
 
-        mqtt_info = {
-            "enabled": bool(settings_obj.mqtt_enabled),
-            "broker": settings_obj.mqtt_broker,
-            "port": settings_obj.mqtt_port,
-            "client_id": settings_obj.mqtt_prefix,
-            "base_topic": settings_obj.mqtt_base_topic,
-            "discovery_prefix": settings_obj.mqtt_discovery_prefix,
-            "retain": settings_obj.mqtt_retain,
-            "running": mqtt_state is not None,
-        }
-        if settings_obj.mqtt_username:
-            mqtt_info["username"] = settings_obj.mqtt_username
-
         return {
             "application": {
-                "name": app.title,
-                "version": app.version,
+                "name": request.app.title,
+                "version": request.app.version,
                 "started_at": started_at.isoformat() if started_at else None,
                 "uptime_seconds": uptime_seconds,
+                "mqtt_connected": mqtt_state is not None,
             },
             "environment": environment_info,
             "settings": settings_payload,
             "database": db_info,
             "tools": {
-                "irtools": irtools_info,
-                "flirc": flirc_summary,
+                "irtools": irtools_summary,
+                "flirc_util": flirc_summary,
                 "cache_generated_at": tool_cache.get("generated_at"),
-            },
-            "mqtt": mqtt_info,
-            "features": {
-                "auto_store_patterns": settings_obj.auto_store_patterns,
             },
         }
 
-    @app.get("/", response_class=HTMLResponse)
-    def index(request: Request):
-        with get_session() as session:
-            records = export_patterns(session)
-        display_settings_data = asdict(settings)
-        display_settings_data.pop("mqtt_password", None)
-        display_settings_data.pop("web_token", None)
-        display_settings = SimpleNamespace(**display_settings_data)
-        return templates.TemplateResponse(
-            "index.html.jinja",
-            {
-                "request": request,
-                "patterns": records,
-                "settings": display_settings,
-                "mqtt_available": runtime.mqtt_manager is not None,
-                "requires_token": bool(settings.web_token),
-            },
-        )
-
-    # ------------------------------------------------------------------- API's
-    @app.get(
+    @router.get(
         "/api/patterns.json",
         response_model=dict,
         summary="Return all stored patterns as JSON structure",
@@ -378,7 +186,7 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
         with get_session() as session:
             return export_patterns(session)
 
-    @app.get(
+    @router.get(
         "/api/patterns",
         response_model=dict,
         summary="Return all stored patterns as JSON structure",
@@ -387,7 +195,7 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
     def get_patterns_legacy():
         return get_patterns_json()
 
-    @app.post(
+    @router.post(
         "/api/mqtt/publish",
         response_model=dict,
         summary="Clear and republish MQTT discovery topics",
@@ -399,11 +207,11 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
             published = runtime.reset_mqtt_discovery()
         except RuntimeError as exc:
             raise HTTPException(status_code=503, detail=str(exc))
-        except Exception as exc:  # pragma: no cover - defensive
+        except Exception as exc:
             raise HTTPException(status_code=500, detail=str(exc))
         return {"published": published}
 
-    @app.post(
+    @router.post(
         "/api/patterns",
         response_model=PatternRecord,
         status_code=status.HTTP_201_CREATED,
@@ -413,7 +221,7 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
             pattern_record_to_db(session, record, mqtt=state["mqtt"])
         return record
 
-    @app.put(
+    @router.put(
         "/api/patterns/{device}/{action}",
         response_model=PatternRecord,
     )
@@ -424,7 +232,7 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
             pattern_record_to_db(session, record, mqtt=state["mqtt"])
         return record
 
-    @app.delete(
+    @router.delete(
         "/api/patterns/{device}/{action}",
         response_model=dict,
     )
@@ -435,14 +243,14 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
             raise HTTPException(status_code=404, detail="Pattern not found")
         return {"status": "deleted"}
 
-    @app.post(
+    @router.post(
         "/api/send",
         response_model=dict,
         responses={400: {"model": ErrorResponse}},
     )
     def send_pattern(payload: SendPatternRequest, state=Depends(get_app_state)):
         if payload.device and payload.action:
-            loaded = _load_stored_pattern(payload.device, payload.action, payload.format)
+            loaded = load_stored_pattern(payload.device, payload.action, payload.format)
             fmt = loaded["format"]
             data = loaded["data"]
             carrier = payload.carrier
@@ -450,12 +258,12 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
         else:
             if payload.format is None or payload.data is None:
                 raise HTTPException(status_code=400, detail="format and data are required for custom patterns")
-            fmt = payload.format  # type: ignore[assignment]
-            data = payload.data  # type: ignore[assignment]
+            fmt = payload.format
+            data = payload.data
             carrier = payload.carrier
             repeat = payload.repeat
 
-        return _transmit_pattern(
+        return transmit_pattern(
             fmt,
             data,
             carrier,
@@ -467,7 +275,7 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
             source="POST /api/send",
         )
 
-    @app.get(
+    @router.get(
         "/api/send",
         response_model=dict,
         responses={400: {"model": ErrorResponse}},
@@ -481,8 +289,8 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
         repeat: Optional[int] = None,
         state=Depends(get_app_state),
     ):
-        loaded = _load_stored_pattern(device, action, format)
-        return _transmit_pattern(
+        loaded = load_stored_pattern(device, action, format)
+        return transmit_pattern(
             loaded["format"],
             loaded["data"],
             carrier,
@@ -494,7 +302,7 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
             source="GET /api/send",
         )
 
-    @app.post(
+    @router.post(
         "/api/receive",
         response_model=ReceivePatternResponse,
         responses={400: {"model": ErrorResponse}},
@@ -508,7 +316,6 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
 
         should_save = request.save
         if not should_save and settings_obj.auto_store_patterns:
-            # Auto-store when enabled and request didn't explicitly ask to skip saving
             should_save = True
 
         if should_save:
@@ -542,7 +349,7 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
 
         return ReceivePatternResponse(format=request.format, data=data, raw_output=output)
 
-    @app.post(
+    @router.post(
         "/api/ingest",
         response_model=dict,
         summary="Bulk import patterns using the patterns.json structure",
@@ -594,12 +401,12 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
 
         return {"status": "ok", "imported": imported}
 
-    @app.get(
+    @router.get(
         "/api/logs",
         summary="Return flirc device logs",
     )
     def get_device_logs(request: Request, state=Depends(get_app_state), _: None = Depends(require_auth)):
-        refresh_flag = _should_refresh(request.query_params.get("refresh"))
+        refresh_flag = should_refresh(request.query_params.get("refresh"))
         cache = {}
         try:
             cache = get_tool_cache(refresh=refresh_flag)
@@ -617,13 +424,13 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
             flirc_cache["device_log"] = log_output
         return PlainTextResponse(log_output or "")
 
-    @app.post(
+    @router.post(
         "/api/test",
         response_model=dict,
         summary="Run flirc device unit tests",
     )
     def run_unit_test(request: Request, state=Depends(get_app_state), _: None = Depends(require_auth)):
-        refresh_flag = _should_refresh(request.query_params.get("refresh"))
+        refresh_flag = should_refresh(request.query_params.get("refresh"))
         cache = {}
         try:
             cache = get_tool_cache(refresh=refresh_flag)
@@ -650,7 +457,7 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
             raise HTTPException(status_code=500, detail="Unit test output unavailable")
         return unit_payload
 
-    return app
+    return router
 
 
-__all__ = ["create_app"]
+__all__ = ["create_api_router"]

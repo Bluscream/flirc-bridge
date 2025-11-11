@@ -20,6 +20,7 @@ services:
       WEB_HOST: 0.0.0.0
       WEB_PORT: 8000
       DB_PATH: /data/patterns.db
+      INSTANCE_NAME: ${INSTANCE_NAME:-Flirc MQTT Bridge}
     ports:
       - "${WEB_PORT:-8000}:8000"
     volumes:

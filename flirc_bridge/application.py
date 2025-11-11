@@ -4,7 +4,7 @@ import json
 import logging
 import threading
 from dataclasses import asdict
-from typing import Any, Dict, List, Optional
+from typing import Optional
 
 from .config import Settings, get_settings
 from .logging import configure_logging
@@ -17,39 +17,9 @@ from .tool import (
     initialize_tools,
 )
 from .mqtt import MQTTManager
+from .utils import scrub_dict
 
 logger = logging.getLogger(__name__)
-
-
-def scrub_dict(data: Dict[str, Any], values_to_remove: List[Any]) -> Dict[str, Any]:
-    """Recursively remove keys whose values match any item in values_to_remove."""
-
-    banned_values = [item for item in values_to_remove if item]
-
-    def _should_remove(value: Any) -> bool:
-        for banned in banned_values:
-            if value == banned:
-                return True
-        return False
-
-    def _scrub(node: Any) -> Any:
-        if isinstance(node, dict):
-            cleaned: Dict[str, Any] = {}
-            for key, value in node.items():
-                if _should_remove(value):
-                    continue
-                cleaned[key] = _scrub(value)
-            return cleaned
-        if isinstance(node, list):
-            cleaned_list = []
-            for item in node:
-                if _should_remove(item):
-                    continue
-                cleaned_list.append(_scrub(item))
-            return cleaned_list
-        return node
-
-    return _scrub(dict(data))
 
 
 class BridgeRuntime:
@@ -161,25 +131,15 @@ class BridgeRuntime:
 
             self._started = False
 
-    def wait_forever(self) -> None:
-        """Block the current thread until shutdown is requested."""
-        try:
-            while not self._shutdown.wait(timeout=1):
-                pass
-        except KeyboardInterrupt:
-            logger.info("Interrupt received; shutting down runtime")
-        finally:
-            self.stop()
-
     def reset_mqtt_discovery(self) -> int:
-        """Clear retained MQTT topics and republish discovery for all actions."""
-        if self._mqtt_manager is None:
+        if not self._mqtt_manager:
             raise RuntimeError("MQTT manager is not running")
+        cleared = self._mqtt_manager.clear_discovery()
+        republished = self._republish_discovery()
+        return cleared + republished
 
-        self._mqtt_manager.unpublish_all()
-        published = self._republish_discovery()
-        logger.info("Reset MQTT discovery for %s action(s)", published)
-        return published
+    def await_shutdown(self, timeout: Optional[float] = None) -> bool:
+        return self._shutdown.wait(timeout)
 
 
 __all__ = ["BridgeRuntime", "configure_logging", "scrub_dict"]

@@ -14,19 +14,9 @@ import paho.mqtt.client as mqtt
 from ..config import Settings, get_settings
 from ..database import Action, Device, Pattern
 from ..tool import IRTools, ToolError, send_ir_pattern
+from ..utils import format_reason, slugify
 
 logger = logging.getLogger(__name__)
-
-
-def _slugify(*parts: str) -> str:
-    return "_".join(part.strip().lower().replace(" ", "_") for part in parts if part)
-
-
-def _format_reason(reason) -> str:
-    try:
-        return f"{reason.name} ({int(reason)})"
-    except AttributeError:
-        return str(reason)
 
 
 class MQTTManager:
@@ -98,7 +88,7 @@ class MQTTManager:
         if reason_code != 0:
             logger.error(
                 "MQTT connection refused: reason=%s, properties=%s",
-                _format_reason(reason_code),
+                format_reason(reason_code),
                 properties,
             )
             return
@@ -112,7 +102,7 @@ class MQTTManager:
         self._connected.clear()
         logger.warning(
             "MQTT disconnected: reason=%s, properties=%s",
-            _format_reason(reason_code),
+            format_reason(reason_code),
             properties,
         )
 
@@ -152,7 +142,7 @@ class MQTTManager:
         return f"{self.settings.mqtt_discovery_prefix}/button/{self._safe_prefix}_{object_id}/config"
 
     def publish_discovery(self, device: Device, action: Action, pattern: Pattern) -> None:
-        object_id = _slugify(device.name, action.name)
+        object_id = slugify(device.name, action.name)
         topic = self._config_topic_for_object_id(object_id)
         command_topic = self._command_topic(object_id)
         payload = {
@@ -163,7 +153,7 @@ class MQTTManager:
             "device": {
                 "identifiers": [self._safe_prefix],
                 "manufacturer": "Flirc",
-                "name": self.settings.mqtt_device_name,
+                "name": self.settings.instance_name,
             },
             "json_attributes_topic": self._attributes_topic(object_id),
             "json_attributes_template": "{{ value_json | tojson }}",
@@ -211,7 +201,7 @@ class MQTTManager:
         self.publish_discovery(device, action, pattern)
 
     def clear_discovery(self, device: Device, action: Action) -> None:
-        object_id = _slugify(device.name, action.name)
+        object_id = slugify(device.name, action.name)
         config_topic = self._config_topic_for_object_id(object_id)
         self.client.publish(config_topic, "", retain=True)
         self.client.publish(
@@ -298,7 +288,7 @@ class MQTTManager:
         return sorted_patterns[0]
 
     def _config_topic(self, device: Device, action: Action) -> str:
-        object_id = _slugify(device.name, action.name)
+        object_id = slugify(device.name, action.name)
         return self._config_topic_for_object_id(object_id)
 
 
