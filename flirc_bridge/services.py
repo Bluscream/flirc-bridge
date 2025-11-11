@@ -205,7 +205,11 @@ def _resolve_device(session: Session, record: PatternRecord) -> database.Device:
             name=record.device,
             description=record.device_description,
         )
-    return database.get_device_by_id(session, database.UNKNOWN_DEVICE_ID)
+    return database.create_device(
+        session,
+        name=None,
+        description=record.device_description,
+    )
 
 
 def _resolve_action(session: Session, record: PatternRecord, device: database.Device) -> database.Action:
@@ -223,12 +227,10 @@ def _resolve_action(session: Session, record: PatternRecord, device: database.De
             name=record.action,
             description=record.action_description,
         )
-    if device.id == database.UNKNOWN_DEVICE_ID:
-        return database.get_action_by_id(session, database.UNKNOWN_ACTION_ID)
     return database.create_action(
         session,
         device=device,
-        name=record.action or database.UNKNOWN_NAME,
+        name=record.action,
         description=record.action_description,
     )
 

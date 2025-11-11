@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import platform
@@ -24,7 +23,6 @@ from ..database import (
     create_action,
     create_device,
     get_session,
-    UNKNOWN_NAME,
 )
 from ..mqtt import MQTTManager
 from ..schemas import (
@@ -269,11 +267,41 @@ def create_api_router(
                 }
 
                 if payload.save:
+                    record_device_id = None
+                    record_device_name = None
+                    if payload.device and _looks_like_uuid(payload.device):
+                        record_device_id = payload.device
+                    elif device:
+                        record_device_id = device.id
+
+                    if payload.device_name:
+                        trimmed_device_name = payload.device_name.strip()
+                        record_device_name = trimmed_device_name or None
+                    elif device:
+                        record_device_name = device.name
+                    elif payload.device and not _looks_like_uuid(payload.device):
+                        record_device_name = payload.device
+
+                    record_action_id = None
+                    record_action_name = None
+                    if payload.action and _looks_like_uuid(payload.action):
+                        record_action_id = payload.action
+                    elif action:
+                        record_action_id = action.id
+
+                    if payload.action_name:
+                        trimmed_action_name = payload.action_name.strip()
+                        record_action_name = trimmed_action_name or None
+                    elif action:
+                        record_action_name = action.name
+                    elif payload.action and not _looks_like_uuid(payload.action):
+                        record_action_name = payload.action
+
                     record = PatternRecord(
-                        device_id=payload.device if payload.device and _looks_like_uuid(payload.device) else (device.id if device else None),
-                        device=payload.device_name if payload.device_name else (device.name if device else (None if (payload.device and _looks_like_uuid(payload.device)) else payload.device)),
-                        action_id=payload.action if payload.action and _looks_like_uuid(payload.action) else (action.id if action else None),
-                        action=payload.action_name if payload.action_name else (action.name if action else (None if (payload.action and _looks_like_uuid(payload.action)) else payload.action)),
+                        device_id=record_device_id,
+                        device=record_device_name,
+                        action_id=record_action_id,
+                        action=record_action_name,
                         patterns=[PatternModel(format=fmt, data=data_values, repeat=repeat_value, ik=ik_value)],
                     )
                     saved_patterns = pattern_record_to_db(session, record, mqtt=state["mqtt"])
@@ -417,24 +445,13 @@ def create_api_router(
         }
 
     @router.get(
-        "/api/patterns.json",
+        "/api/patterns",
         response_model=PatternListResponse,
         summary="Return all stored patterns as JSON structure",
     )
     def get_patterns_json():
         with get_session() as session:
             return export_patterns(session)
-
-    # region LegacyCompat
-    @router.get(
-        "/api/patterns",
-        response_model=PatternListResponse,
-        summary="Return all stored patterns as JSON structure",
-        include_in_schema=False,
-    )
-    def get_patterns_legacy():
-        return get_patterns_json()
-    # endregion
 
     @router.post(
         "/api/mqtt/publish",
@@ -463,9 +480,10 @@ def create_api_router(
         _: None = Depends(require_auth),
     ):
         with get_session() as session:
+            name = (payload.name or "").strip()
             device = create_device(
                 session,
-                name=payload.name,
+                name=name or None,
                 description=payload.description or "",
             )
             response = build_device_response(device)
@@ -662,29 +680,16 @@ def create_api_router(
             should_save = True
 
         if should_save:
-            device_name = request.device or "Auto Stored Device"
+            device_name = (request.device or "").strip() or None
             data_string = json.dumps(data)
             data_hash = compute_pattern_hash(request.format, data, repeat=1, ik=23000)
-            if request.action:
-                action_name = request.action
-            else:
-                digest = data_hash[:8]
-                action_name = f"Auto {request.format.upper()} {digest}"
+            action_name = (request.action or "").strip() or None
             with get_session() as session:
                 existing = (
                     session.query(Pattern)
                     .filter(Pattern.hash == data_hash)
                     .first()
                 )
-                if existing is None:
-                    # region LegacyCompat
-                    legacy_hash = hashlib.sha256(data_string.encode("utf-8")).hexdigest()
-                    existing = (
-                        session.query(Pattern)
-                        .filter(Pattern.hash == legacy_hash)
-                        .first()
-                    )
-                    # endregion
                 if existing is None:
                     existing = (
                         session.query(Pattern)

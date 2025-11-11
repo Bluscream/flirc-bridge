@@ -36,13 +36,6 @@ def _parse_version_output(output: str, tool_hint: Optional[str] = None) -> Dict[
     return data
 
 
-# region LegacyCompat
-def _collect_version_info(command: str) -> Dict[str, Any]:
-    """Deprecated helper retained for backwards compatibility."""
-    return {"command": command, "error": "deprecated"}
-# endregion
-
-
 def create_app(settings_override: Optional[Settings] = None, runtime: Optional[BridgeRuntime] = None) -> FastAPI:
     if runtime is None:
         runtime = BridgeRuntime(settings_override or get_settings())

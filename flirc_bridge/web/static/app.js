@@ -784,6 +784,8 @@ function applyActionButtonStyles() {
     const color = getActionButtonColor(label.trim());
     button.style.backgroundColor = color;
     button.style.borderColor = color;
+    button.style.color = "#ffffff";
+    button.style.boxShadow = "0 0.25rem 0.5rem rgba(0,0,0,0.2)";
   });
 }
 

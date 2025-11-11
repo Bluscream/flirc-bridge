@@ -179,6 +179,20 @@ def get_action_by_name(session: Session, device_id: str, name: str) -> Action | 
     )
 
 
+def _generate_unique_device_name(session: Session) -> str:
+    while True:
+        candidate = _uuid_str()
+        if get_device_by_name(session, candidate) is None:
+            return candidate
+
+
+def _generate_unique_action_name(session: Session, device_id: str) -> str:
+    while True:
+        candidate = _uuid_str()
+        if get_action_by_name(session, device_id, candidate) is None:
+            return candidate
+
+
 def create_device(
     session: Session,
     *,
@@ -186,11 +200,13 @@ def create_device(
     description: Optional[str] = None,
     device_id: Optional[str] = None,
 ) -> Device:
-    name = name or UNKNOWN_NAME
-    description = description or ""
+    description = (description or "").strip()
+    cleaned_name = (name or "").strip()
+    if not cleaned_name:
+        cleaned_name = _generate_unique_device_name(session)
     device = Device(
         id=device_id or _uuid_str(),
-        name=name,
+        name=cleaned_name,
         description=description,
     )
     session.add(device)
@@ -206,12 +222,14 @@ def create_action(
     description: Optional[str] = None,
     action_id: Optional[str] = None,
 ) -> Action:
-    name = name or UNKNOWN_NAME
-    description = description or ""
+    description = (description or "").strip()
+    cleaned_name = (name or "").strip()
+    if not cleaned_name:
+        cleaned_name = _generate_unique_action_name(session, device.id)
     action = Action(
         id=action_id or _uuid_str(),
         device_id=device.id,
-        name=name,
+        name=cleaned_name,
         description=description,
     )
     session.add(action)

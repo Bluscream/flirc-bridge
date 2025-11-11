@@ -28,6 +28,12 @@
         const downloadButton = document.getElementById("download-status");
         let lastStatus = null;
 
+        const HIDDEN_KEY_PATTERN = /(^id$)|(_id$)|(^hash$)|(_hash$)/i;
+
+        function shouldHideKey(key) {
+            return HIDDEN_KEY_PATTERN.test(key);
+        }
+
         function humanize(key) {
             return key
                 .replace(/_/g, " ")
@@ -125,7 +131,7 @@
         function buildCardGrid(obj, depth) {
             const row = document.createElement("div");
             row.className = "row g-2";
-            const entries = Object.entries(obj);
+            const entries = Object.entries(obj).filter(([key]) => !shouldHideKey(key));
 
             if (entries.length === 0) {
                 const col = document.createElement("div");
@@ -202,7 +208,7 @@
                 return;
             }
 
-            const entries = Object.entries(data);
+            const entries = Object.entries(data).filter(([key]) => !shouldHideKey(key));
             if (entries.length === 0) {
                 grid.innerHTML = '<div class="col-12"><div class="alert alert-secondary">Status payload was empty.</div></div>';
                 return;

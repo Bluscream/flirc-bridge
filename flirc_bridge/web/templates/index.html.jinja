@@ -9,8 +9,8 @@
       <h2 class="h4 text-white mb-0">Send Custom Pattern</h2>
     </div>
     <div class="card-body">
-      <form id="custom-send-form" class="row g-3">
-        <div class="col-12 col-md-3">
+      <form id="custom-send-form" class="row g-3 align-items-end flex-column flex-xl-row">
+        <div class="col-12 col-xl-auto">
           <label for="custom-format-select" class="form-label">Format</label>
           <select id="custom-format-select" class="form-select">
             <option value="raw">Raw</option>
@@ -18,20 +18,20 @@
             <option value="pronto">Pronto</option>
           </select>
         </div>
-        <div class="col-6 col-md-2">
+        <div class="col-6 col-xl-auto">
           <label for="custom-repeat-input" class="form-label">Repeat</label>
           <input id="custom-repeat-input" type="number" class="form-control" min="1" step="1" value="1" />
         </div>
-        <div class="col-6 col-md-2">
+        <div class="col-6 col-xl-auto">
           <label for="custom-ik-input" class="form-label">IK</label>
           <input id="custom-ik-input" type="number" class="form-control" min="1" step="1" value="23000" />
         </div>
-        <div class="col-12 col-md-5">
+        <div class="col-12 col-xl flex-grow-1">
           <label for="custom-pattern-input" class="form-label">Pattern Data</label>
           <input id="custom-pattern-input" class="form-control" placeholder="Paste pattern data" autocomplete="off" />
         </div>
-        <div class="col-12 col-md-2 d-grid align-self-end">
-          <button type="submit" id="custom-send-button" class="btn btn-primary">Send</button>
+        <div class="col-12 col-xl-auto d-grid d-xl-flex">
+          <button type="submit" id="custom-send-button" class="btn btn-primary w-100">Send</button>
         </div>
       </form>
       <div class="form-text text-secondary mt-2">
@@ -55,60 +55,31 @@
       <div class="card shadow-lg border-0 bg-body-tertiary">
         <div class="card-header bg-transparent border-secondary-subtle">
           <div class="d-flex flex-column flex-md-row justify-content-between gap-2">
-            <div>
-              <h3 class="h5 text-white mb-0">{{ device.name }}</h3>
+            <div class="text-break">
+              <h3 class="h5 text-white mb-0 text-break">{{ device.name }}</h3>
               {% if device.description %}
               <p class="text-secondary mb-0 small">{{ device.description }}</p>
               {% endif %}
             </div>
+            {% if device.actions %}
             <div class="text-secondary small text-md-end">
-              <div>ID: <code>{{ device.id }}</code></div>
-              {% if device.actions %}
               <div>{{ device.actions|length }} action{{ 's' if device.actions|length != 1 else '' }}</div>
-              {% endif %}
             </div>
+            {% endif %}
           </div>
         </div>
         <div class="card-body">
           {% if not device.actions %}
             <p class="text-secondary mb-0">No actions stored.</p>
           {% else %}
-            <div class="vstack gap-3">
+            <div class="d-flex flex-wrap gap-2">
               {% for action in device.actions %}
-              <div class="border border-secondary-subtle rounded-3 p-3 bg-dark-subtle">
-                <div class="d-flex flex-column flex-md-row align-items-md-center gap-3">
-                  <div class="flex-grow-1">
-                    <h4 class="h6 text-white mb-1">{{ action.name }}</h4>
-                    {% if action.description %}
-                    <p class="text-secondary small mb-0">{{ action.description }}</p>
-                    {% endif %}
-                    <div class="text-secondary small">
-                      ID: <code>{{ action.id }}</code> &middot;
-                      {{ action.patterns|length }} pattern{{ 's' if action.patterns|length != 1 else '' }}
-                    </div>
-                  </div>
-                  <div class="d-flex flex-wrap gap-2">
-                    <button
-                      class="btn btn-outline-primary btn-sm action-send-button"
-                      data-action-label="{{ action.name }}"
-                      onclick='sendAction({{ device.id|tojson }}, {{ action.id|tojson }})'>
-                      Send All Patterns
-                    </button>
-                  </div>
-                </div>
-                {% if action.patterns %}
-                <div class="mt-3 d-flex flex-wrap gap-2">
-                  {% for pattern in action.patterns %}
-                  <button
-                    class="btn btn-sm btn-outline-light action-send-button"
-                    data-action-label="{{ action.name }}"
-                    onclick='sendPatternById({{ pattern.id|tojson }})'>
-                    {{ pattern.format|upper }} · repeat {{ pattern.repeat }} · ik {{ pattern.ik }}
-                  </button>
-                  {% endfor %}
-                </div>
-                {% endif %}
-              </div>
+              <button
+                class="btn btn-lg fw-semibold action-send-button text-break"
+                data-action-label="{{ action.name }}"
+                onclick='sendAction({{ device.id|tojson }}, {{ action.id|tojson }})'>
+                {{ action.name }}
+              </button>
               {% endfor %}
             </div>
           {% endif %}

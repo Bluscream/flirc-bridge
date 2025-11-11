@@ -33,7 +33,6 @@
               {% if device.description %}
               <div class="text-secondary small">{{ device.description }}</div>
               {% endif %}
-              <div class="text-secondary small">ID: <code>{{ device.id }}</code></div>
               <button class="btn btn-sm btn-outline-danger mt-2" onclick='deleteDeviceById({{ device.id|tojson }})'>Delete Device</button>
             </td>
             <td class="text-secondary align-middle">—</td>
@@ -49,11 +48,9 @@
               <tr>
                 <td class="text-white align-middle">
                   <div class="fw-semibold">{{ device.name }}</div>
-                  <div class="text-secondary small">ID: <code>{{ device.id }}</code></div>
                 </td>
                 <td class="text-white align-middle">
                   <div class="fw-semibold">{{ action.name }}</div>
-                  <div class="text-secondary small">ID: <code>{{ action.id }}</code></div>
                 </td>
                 <td class="text-secondary align-middle">No patterns stored.</td>
                 <td class="text-secondary align-middle">—</td>
@@ -68,18 +65,13 @@
                 <tr>
                   <td class="text-white align-middle">
                     <div class="fw-semibold">{{ device.name }}</div>
-                    <div class="text-secondary small">ID: <code>{{ device.id }}</code></div>
                   </td>
                   <td class="text-white align-middle">
                     <div class="fw-semibold">{{ action.name }}</div>
-                    <div class="text-secondary small">ID: <code>{{ action.id }}</code></div>
                   </td>
                   <td class="text-secondary align-middle">
                     <div><span class="badge bg-secondary">{{ pattern.format|upper }}</span></div>
                     <div class="text-secondary small">repeat {{ pattern.repeat }} · ik {{ pattern.ik }}</div>
-                    {% if pattern.hash %}
-                    <div class="text-secondary small">hash <code>{{ pattern.hash }}</code></div>
-                    {% endif %}
                     {% if pattern.data %}
                     <div class="text-secondary small text-truncate" style="max-width: 18rem;">
                       {{ pattern.data|join(', ') }}
@@ -123,19 +115,19 @@
         An access token is required to add, edit, or delete patterns. You will be prompted when needed.
       </div>
       {% endif %}
-      <form id="pattern-form" class="row g-3">
+      <form id="pattern-form" class="row g-3 align-items-end">
         <input type="hidden" id="device-id-field" />
         <input type="hidden" id="action-id-field" />
         <input type="hidden" id="pattern-id-field" />
-        <div class="col-12 col-md-4">
+        <div class="col-12 col-xl-auto flex-grow-1">
           <label for="device" class="form-label">Device</label>
           <input id="device" name="device" class="form-control" placeholder="e.g. Compact Space Heater" required />
         </div>
-        <div class="col-12 col-md-4">
+        <div class="col-12 col-xl-auto flex-grow-1">
           <label for="action" class="form-label">Action</label>
           <input id="action" name="action" class="form-control" placeholder="e.g. Toggle" required />
         </div>
-        <div class="col-6 col-md-2">
+        <div class="col-6 col-xl-auto">
           <label for="pattern-format" class="form-label">Format</label>
           <select id="pattern-format" class="form-select" required>
             <option value="raw">Raw</option>
@@ -143,11 +135,11 @@
             <option value="pronto">Pronto</option>
           </select>
         </div>
-        <div class="col-6 col-md-2">
+        <div class="col-6 col-xl-auto">
           <label for="pattern-repeat" class="form-label">Repeat</label>
           <input id="pattern-repeat" type="number" class="form-control" min="1" step="1" value="1" />
         </div>
-        <div class="col-6 col-md-2">
+        <div class="col-6 col-xl-auto">
           <label for="pattern-ik" class="form-label">IK</label>
           <input id="pattern-ik" type="number" class="form-control" min="1" step="1" value="23000" />
         </div>
