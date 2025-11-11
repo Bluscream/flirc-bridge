@@ -19,8 +19,18 @@ from fastapi.templating import Jinja2Templates
 from ..application import BridgeRuntime
 from ..config import Settings, get_settings
 from ..database import Action, Device, Pattern, get_session
-from ..flirc_util import FlircUtil, FlircUtilError
-from ..irtools import IRTools, IRToolsError
+from ..tool import (
+    FlircUtil,
+    FlircUtilError,
+    IRTools,
+    IRToolsError,
+    ToolError,
+    get_flirc_util,
+    get_irtools,
+    get_tool_cache,
+    initialize_tools,
+    send_ir_pattern,
+)
 from ..mqtt import MQTTManager
 from ..schemas import (
     ErrorResponse,
@@ -53,10 +63,17 @@ def _collect_version_info(command: str) -> Dict[str, Any]:
     return {"command": command, "error": "deprecated"}
 
 
+def _should_refresh(value: Optional[str]) -> bool:
+    if value is None:
+        return False
+    return value.strip().lower() in {"1", "true", "yes", "on", "refresh"}
+
+
 def create_app(settings_override: Optional[Settings] = None, runtime: Optional[BridgeRuntime] = None) -> FastAPI:
     if runtime is None:
         runtime = BridgeRuntime(settings_override or get_settings())
     runtime.start()
+    initialize_tools()
     settings = runtime.settings
 
     irtools = runtime.irtools
@@ -87,8 +104,8 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
     def get_app_state():
         return {
             "settings": settings,
-            "irtools": runtime.irtools,
-            "flirc_util": runtime.flirc_util,
+            "irtools": get_irtools(),
+            "flirc_util": get_flirc_util(),
             "mqtt": runtime.mqtt_manager,
             "runtime": runtime,
         }
@@ -164,25 +181,29 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
                 data_repr,
             )
         try:
-            stdout = irtools.send(fmt, data or [], carrier=carrier, repeat=repeat)  # type: ignore[arg-type]
-            logger.info(
-                "[%s] IRTools send successful: %s",
-                source,
-                stdout.strip() if isinstance(stdout, str) else stdout,
+            result = send_ir_pattern(
+                fmt,
+                data or [],
+                carrier=carrier,
+                repeat=repeat,
+                irtools=irtools,
+                flirc_util=flirc,
             )
-            return {"status": "sent", "output": stdout}
-        except IRToolsError as primary_exc:
-            try:
-                fallback_output = flirc.send_ir(data or [])
+            logger.info(
+                "[%s] IR send successful via %s: %s",
+                source,
+                result["tool"],
+                (result["output"] or "").strip(),
+            )
+            if result.get("fallback"):
                 logger.warning(
-                    "[%s] IRTools failed (%s); falling back to flirc_util. Output=%s",
+                    "[%s] IRTools failed (%s); flirc_util fallback succeeded",
                     source,
-                    primary_exc,
-                    fallback_output,
+                    result.get("irtools_error"),
                 )
-                return {"status": "sent", "output": fallback_output, "fallback": "flirc_util"}
-            except FlircUtilError as secondary_exc:
-                raise HTTPException(status_code=500, detail=f"IRTools failed: {primary_exc}; flirc_util failed: {secondary_exc}")
+            return {"status": "sent", **result}
+        except ToolError as exc:
+            raise HTTPException(status_code=500, detail=str(exc))
 
     # ----------------------------------------------------------- web interface
     @app.get(
@@ -226,32 +247,66 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
         except Exception as exc:  # pragma: no cover - database unavailable
             db_info["error"] = str(exc)
 
+        refresh_flag = _should_refresh(request.query_params.get("refresh"))
+        tool_error: Optional[str] = None
         try:
-            irtools_info = irtools_instance.version_info()
-        except IRToolsError as exc:
-            irtools_info = {"tool": "irtools", "error": str(exc)}
+            tool_cache = get_tool_cache(refresh=refresh_flag)
+        except ToolError as exc:
+            tool_cache = {}
+            tool_error = str(exc)
 
-        try:
-            flirc_settings = flirc_instance.settings_info()
-            details = flirc_settings.get("details", {})
-            settings_map = flirc_settings.get("settings", {})
-            flirc_summary = {
-                "version": flirc_settings.get("version"),
-                "fw_version": details.get("fw_version"),
-                "sku": details.get("sku") or settings_map.get("product_sku"),
-                "branch": details.get("branch"),
-                "config": details.get("config"),
-                "hash": details.get("hash"),
-                "sleep_detection": settings_map.get("sleep_detection"),
-                "noise_canceler": settings_map.get("noise_canceler"),
-                "inter-key_delay": settings_map.get("inter_key_delay"),
-                "variant": settings_map.get("variant"),
-                "builtin_profiles": settings_map.get("builtin_profiles"),
-                "memory_info": settings_map.get("memory_info"),
-                "recorded_keys": flirc_settings.get("recorded_keys", []),
-            }
-        except FlircUtilError as exc:
-            flirc_summary = {"tool": "flirc_util", "error": str(exc)}
+        irtools_cache = tool_cache.get("irtools", {})
+        if irtools_cache:
+            irtools_info = dict(irtools_cache.get("version_info") or {})
+            irtools_info.setdefault("tool", "irtools")
+            irtools_info["path"] = irtools_cache.get("path")
+            irtools_info["filesize"] = irtools_cache.get("filesize")
+            irtools_info["timestamp"] = irtools_cache.get("timestamp")
+            irtools_info["version_raw"] = irtools_cache.get("version_raw")
+        else:
+            try:
+                irtools_info = irtools_instance.version_info()
+            except IRToolsError as exc:
+                irtools_info = {"tool": "irtools", "error": str(exc if tool_error is None else tool_error)}
+
+        flirc_cache = tool_cache.get("flirc_util", {})
+        if flirc_cache:
+            flirc_settings = flirc_cache.get("settings_info", {})
+        else:
+            try:
+                flirc_settings = flirc_instance.settings_info()
+            except FlircUtilError as exc:
+                flirc_settings = {"error": str(exc if tool_error is None else tool_error)}
+                flirc_cache = {}
+
+        details = flirc_settings.get("details", {}) if isinstance(flirc_settings, dict) else {}
+        settings_map = flirc_settings.get("settings", {}) if isinstance(flirc_settings, dict) else {}
+        flirc_summary = {
+            "tool": "flirc_util",
+            "path": flirc_cache.get("path"),
+            "filesize": flirc_cache.get("filesize"),
+            "timestamp": flirc_cache.get("timestamp"),
+            "version": flirc_cache.get("version") or flirc_settings.get("version") if isinstance(flirc_settings, dict) else None,
+            "settings_raw": flirc_cache.get("settings_raw"),
+            "device_log": flirc_cache.get("device_log"),
+            "unit_test": flirc_cache.get("unit_test"),
+            "fw_version": details.get("fw_version"),
+            "sku": details.get("sku") or settings_map.get("product_sku"),
+            "branch": details.get("branch"),
+            "config": details.get("config"),
+            "hash": details.get("hash"),
+            "sleep_detection": settings_map.get("sleep_detection"),
+            "noise_canceler": settings_map.get("noise_canceler"),
+            "inter-key_delay": settings_map.get("inter_key_delay"),
+            "variant": settings_map.get("variant"),
+            "builtin_profiles": settings_map.get("builtin_profiles"),
+            "memory_info": settings_map.get("memory_info"),
+            "recorded_keys": flirc_settings.get("recorded_keys", []) if isinstance(flirc_settings, dict) else [],
+        }
+        if "error" in flirc_settings:
+            flirc_summary = {"tool": "flirc_util", "error": flirc_settings["error"]}
+        if tool_error and not irtools_cache and "error" not in irtools_info:
+            irtools_info["error"] = tool_error
 
         environment_info = {
             "python_version": sys.version.split()[0],
@@ -286,6 +341,7 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
             "tools": {
                 "irtools": irtools_info,
                 "flirc": flirc_summary,
+                "cache_generated_at": tool_cache.get("generated_at"),
             },
             "mqtt": mqtt_info,
             "features": {
@@ -542,12 +598,23 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
         "/api/logs",
         summary="Return flirc device logs",
     )
-    def get_device_logs(state=Depends(get_app_state), _: None = Depends(require_auth)):
-        flirc_util: FlircUtil = state["flirc_util"]
+    def get_device_logs(request: Request, state=Depends(get_app_state), _: None = Depends(require_auth)):
+        refresh_flag = _should_refresh(request.query_params.get("refresh"))
+        cache = {}
         try:
-            log_output = flirc_util.device_log()
-        except FlircUtilError as exc:
-            raise HTTPException(status_code=500, detail=str(exc))
+            cache = get_tool_cache(refresh=refresh_flag)
+        except ToolError:
+            cache = {}
+
+        flirc_cache = cache.get("flirc_util", {})
+        log_output = flirc_cache.get("device_log")
+        if log_output is None or refresh_flag:
+            flirc_util: FlircUtil = state["flirc_util"]
+            try:
+                log_output = flirc_util.device_log()
+            except FlircUtilError as exc:
+                raise HTTPException(status_code=500, detail=str(exc))
+            flirc_cache["device_log"] = log_output
         return PlainTextResponse(log_output or "")
 
     @app.post(
@@ -555,20 +622,33 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
         response_model=dict,
         summary="Run flirc device unit tests",
     )
-    def run_unit_test(state=Depends(get_app_state), _: None = Depends(require_auth)):
-        flirc_util: FlircUtil = state["flirc_util"]
+    def run_unit_test(request: Request, state=Depends(get_app_state), _: None = Depends(require_auth)):
+        refresh_flag = _should_refresh(request.query_params.get("refresh"))
+        cache = {}
         try:
-            result = flirc_util.unit_test()
-        except FlircUtilError as exc:
-            raise HTTPException(status_code=500, detail=str(exc))
-        payload = {
-            "exitcode": result.returncode,
-            "stdout": (result.stdout or "").strip(),
-            "stderr": (result.stderr or "").strip(),
-        }
-        if result.returncode != 0:
-            raise HTTPException(status_code=500, detail=payload)
-        return payload
+            cache = get_tool_cache(refresh=refresh_flag)
+        except ToolError:
+            cache = {}
+
+        flirc_cache = cache.get("flirc_util", {})
+        unit_payload = flirc_cache.get("unit_test")
+        if unit_payload is None or refresh_flag:
+            flirc_util: FlircUtil = state["flirc_util"]
+            try:
+                result = flirc_util.unit_test()
+            except FlircUtilError as exc:
+                raise HTTPException(status_code=500, detail=str(exc))
+            unit_payload = {
+                "returncode": result.returncode,
+                "stdout": (result.stdout or "").strip(),
+                "stderr": (result.stderr or "").strip(),
+            }
+            flirc_cache["unit_test"] = unit_payload
+        if isinstance(unit_payload, dict) and unit_payload.get("returncode", 0) != 0 and "error" not in unit_payload:
+            raise HTTPException(status_code=500, detail=unit_payload)
+        if unit_payload is None:
+            raise HTTPException(status_code=500, detail="Unit test output unavailable")
+        return unit_payload
 
     return app
 

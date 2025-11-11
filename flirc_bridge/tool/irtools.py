@@ -3,9 +3,11 @@ from __future__ import annotations
 import json
 import re
 import shutil
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from typing import Iterable, List, Optional
 
-from .tool_base import FlircTool, ToolError
+from .base import FlircTool, ToolError, ProtocolFormat
 
 
 class IRToolsError(ToolError):
@@ -43,6 +45,7 @@ class IRTools(FlircTool):
 
     def __init__(self, executable: Optional[str] = None) -> None:
         super().__init__(executable or self.executable_name)
+        self.version_output: Optional[str] = None
 
     def help(self, command: Optional[str] = None) -> str:
         args: List[str] = ["help"]
@@ -60,33 +63,9 @@ class IRTools(FlircTool):
         result = self.run("decode", "--format", fmt, "--data", payload)
         return (result.stdout or result.stderr or "").strip()
 
-    def send(
-        self,
-        fmt: str,
-        data: Iterable[str],
-        carrier: Optional[int] = None,
-        repeat: Optional[int] = None,
-    ) -> str:
-        """
-        Transmit an IR pattern using irtools.
-        """
-        try:
-            output = self.send_command(fmt, data, carrier=carrier, repeat=repeat)
-        except ToolError as exc:
-            message = str(exc)
-            if "could not find command" in message.lower():
-                raise IRToolsError(f"Failed to run irtools: {exc} (Are you trying to run flirc_util as it?)") from exc
-            raise
-
-        normalized_output = (output or "").lower()
-        if "must specify a pattern" in normalized_output:
-            raise IRToolsError(f"irtools reported an error: {output}")
-
-        return output
-
     def listen(
         self,
-        fmt: str,
+        fmt: ProtocolFormat,
         timeout: int,
     ) -> tuple[List[str], str]:
         """
@@ -143,6 +122,24 @@ class IRTools(FlircTool):
         output = self.version()
         executable = shutil.which(self.executable) or self.executable
         return _parse_version_output("irtools", output, executable)
+
+    def refresh_cache(self) -> dict:
+        path = self._resolve_executable()
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            version_future = executor.submit(self.version)
+            version_output = version_future.result()
+
+        version_info = _parse_version_output("irtools", version_output, self.path)
+        cache = {
+            "path": self.path,
+            "filesize": self.filesize,
+            "timestamp": datetime.utcnow().isoformat(),
+            "version_raw": version_output,
+            "version_info": version_info,
+        }
+        self.version_output = version_output
+        self.cache = cache
+        return cache
 
 
 __all__ = ["IRTools", "IRToolsError"]

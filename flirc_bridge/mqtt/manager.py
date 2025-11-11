@@ -13,7 +13,7 @@ import paho.mqtt.client as mqtt
 
 from ..config import Settings, get_settings
 from ..database import Action, Device, Pattern
-from ..irtools import IRTools, IRToolsError
+from ..tool import IRTools, ToolError, send_ir_pattern
 
 logger = logging.getLogger(__name__)
 
@@ -187,9 +187,9 @@ class MQTTManager:
 
         def handler() -> None:
             try:
-                self.irtools.send(pattern_format, json.loads(pattern_data))
+                send_ir_pattern(pattern_format, json.loads(pattern_data), irtools=self.irtools)
                 logger.info("Sent pattern %s/%s (%s)", device_name, action_name, pattern_format)
-            except (IRToolsError, json.JSONDecodeError) as exc:
+            except (ToolError, json.JSONDecodeError) as exc:
                 logger.error(
                     "Failed to send pattern %s/%s (%s): %s",
                     device_name,
@@ -279,9 +279,9 @@ class MQTTManager:
             return
         try:
             items = [str(item) for item in values] if isinstance(values, list) else [str(values)]
-            self.irtools.send(fmt, items, carrier=carrier, repeat=repeat)
+            send_ir_pattern(fmt, items, carrier=carrier, repeat=repeat, irtools=self.irtools)
             logger.info("Sent custom MQTT payload (%s)", fmt)
-        except IRToolsError as exc:
+        except ToolError as exc:
             logger.error("Failed to send custom MQTT payload (%s): %s", fmt, exc)
 
     def _select_primary_pattern(self, action: Action) -> Optional[Pattern]:

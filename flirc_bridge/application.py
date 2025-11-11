@@ -9,8 +9,13 @@ from typing import Any, Dict, List, Optional
 from .config import Settings, get_settings
 from .logging import configure_logging
 from .database import Device, get_session, init_db
-from .flirc_util import FlircUtil
-from .irtools import IRTools
+from .tool import (
+    FlircUtil,
+    IRTools,
+    get_flirc_util,
+    get_irtools,
+    initialize_tools,
+)
 from .mqtt import MQTTManager
 
 logger = logging.getLogger(__name__)
@@ -52,8 +57,6 @@ class BridgeRuntime:
 
     def __init__(self, settings: Optional[Settings] = None) -> None:
         self._settings = settings or get_settings()
-        self._irtools: Optional[IRTools] = None
-        self._flirc_util: Optional[FlircUtil] = None
         self._mqtt_manager: Optional[MQTTManager] = None
         self._shutdown = threading.Event()
         self._started = False
@@ -69,15 +72,11 @@ class BridgeRuntime:
 
     @property
     def irtools(self) -> IRTools:
-        if self._irtools is None:
-            raise RuntimeError("BridgeRuntime has not been started; IRTools unavailable")
-        return self._irtools
+        return get_irtools()
 
     @property
     def flirc_util(self) -> FlircUtil:
-        if self._flirc_util is None:
-            raise RuntimeError("BridgeRuntime has not been started; FlircUtil unavailable")
-        return self._flirc_util
+        return get_flirc_util()
 
     @property
     def mqtt_manager(self) -> Optional[MQTTManager]:
@@ -104,8 +103,7 @@ class BridgeRuntime:
                 ),
             )
 
-            self._irtools = IRTools()
-            self._flirc_util = FlircUtil()
+            initialize_tools()
 
             self._start_mqtt_if_enabled()
 
@@ -161,8 +159,6 @@ class BridgeRuntime:
                 finally:
                     self._mqtt_manager = None
 
-            self._irtools = None
-            self._flirc_util = None
             self._started = False
 
     def wait_forever(self) -> None:

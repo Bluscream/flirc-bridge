@@ -3,9 +3,11 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from typing import Iterable, Optional
 
-from .tool_base import FlircTool, ToolError
+from .base import FlircTool, ToolError
 
 
 def _parse_version_output(output: str, executable: Optional[str]) -> dict:
@@ -49,6 +51,10 @@ class FlircUtil(FlircTool):
 
     def __init__(self, executable: Optional[str] = None) -> None:
         super().__init__(executable or self.executable_name)
+        self.version_output: Optional[str] = None
+        self.settings_output: Optional[str] = None
+        self.device_log_output: Optional[str] = None
+        self.unit_test_output: Optional[dict] = None
 
     def help(self, command: Optional[str] = None) -> str:
         args = ["help"]
@@ -66,9 +72,6 @@ class FlircUtil(FlircTool):
         raw = self.version()
         executable = shutil.which(self.executable) or self.executable
         return _parse_version_output(raw, executable)
-
-    def send_ir(self, pattern: Iterable[str]) -> str:
-        return self.send_command("raw", pattern)
 
     def record(self, key: str) -> str:
         return self.run_text("record", key)
@@ -96,8 +99,8 @@ class FlircUtil(FlircTool):
     def unit_test(self) -> subprocess.CompletedProcess[str]:
         return self.run("unit_test")
 
-    def settings_info(self) -> dict:
-        raw = self.run_text("settings")
+    @staticmethod
+    def _parse_settings_output(raw: str) -> dict:
         info = {
             "raw": raw,
             "details": {},
@@ -161,6 +164,55 @@ class FlircUtil(FlircTool):
                     )
                 idx += 1
         return info
+
+    def settings_info(self, raw: Optional[str] = None) -> dict:
+        output = raw if raw is not None else self.run_text("settings")
+        return self._parse_settings_output(output)
+
+    def refresh_cache(self) -> dict:
+        self._resolve_executable()
+
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            version_future = executor.submit(self.version)
+            settings_future = executor.submit(self.settings)
+            device_log_future = executor.submit(self.device_log)
+            unit_test_future = executor.submit(self.unit_test)
+
+        version_output = version_future.result()
+        settings_output = settings_future.result()
+        device_log_output = device_log_future.result()
+
+        try:
+            unit_result = unit_test_future.result()
+            unit_payload = {
+                "returncode": unit_result.returncode,
+                "stdout": (unit_result.stdout or "").strip(),
+                "stderr": (unit_result.stderr or "").strip(),
+            }
+        except ToolError as exc:  # pragma: no cover - defensive
+            unit_payload = {"error": str(exc)}
+
+        settings_info = self.settings_info(raw=settings_output)
+        version_info = _parse_version_output(version_output, self.path)
+
+        cache = {
+            "path": self.path,
+            "filesize": self.filesize,
+            "timestamp": datetime.utcnow().isoformat(),
+            "version": version_output,
+            "version_info": version_info,
+            "settings_raw": settings_output,
+            "settings_info": settings_info,
+            "device_log": device_log_output,
+            "unit_test": unit_payload,
+        }
+
+        self.version_output = version_output
+        self.settings_output = settings_output
+        self.device_log_output = device_log_output
+        self.unit_test_output = unit_payload
+        self.cache = cache
+        return cache
 
 
 __all__ = ["FlircUtil", "FlircUtilError"]
