@@ -4,40 +4,37 @@ from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-PatternFormatLiteral = Literal["raw", "csv", "pronto", "lirc", "array", "json"]
+PatternFormatLiteral = Literal["raw", "csv", "pronto"]
 
 
-class PatternFormatModel(BaseModel):
-    format: PatternFormatLiteral = Field(description="Pattern format identifier")
+class PatternModel(BaseModel):
+    id: Optional[str] = Field(None, description="Pattern identifier (UUID)")
+    format: PatternFormatLiteral = Field("raw", description="Pattern format identifier")
     data: List[str] = Field(
         default_factory=list,
-        description="List of pattern values, stored as strings for portability",
+        description="Pattern payload as list of strings",
     )
-    hash: Optional[str] = Field(
-        default=None,
-        description="SHA-256 hash of the pattern payload",
-    )
-    repeat: Optional[int] = Field(
-        default=1,
-        ge=1,
-        description="Repeat count to apply when transmitting this pattern",
-    )
-    ik: Optional[int] = Field(
-        default=23000,
-        ge=1,
-        description="Inter-key delay to apply (maps to --ik)",
-    )
+    repeat: int = Field(1, ge=1, description="Repeat count for the pattern")
+    ik: int = Field(23000, ge=1, description="Inter-key delay")
+    hash: Optional[str] = Field(None, description="MD5 hash of format+data+repeat+ik")
+    created_at: Optional[str] = Field(None, description="ISO timestamp when pattern was created")
+    updated_at: Optional[str] = Field(None, description="ISO timestamp when pattern was last updated")
+    sent_at: Optional[str] = Field(None, description="ISO timestamp when pattern was last sent")
 
     @field_validator("data", mode="before")
     def _ensure_strings(cls, value: Any) -> List[str]:
+        if value is None:
+            return []
         if isinstance(value, list):
             return [str(item) for item in value]
         if isinstance(value, str):
+            if not value:
+                return []
             return [value]
         raise ValueError("data must be a string or list of strings")
 
     @field_validator("repeat", mode="before")
-    def _normalize_repeat(cls, value: Any) -> Optional[int]:
+    def _normalize_repeat(cls, value: Any) -> int:
         if value is None:
             return 1
         try:
@@ -49,7 +46,7 @@ class PatternFormatModel(BaseModel):
         return repeat_value
 
     @field_validator("ik", mode="before")
-    def _normalize_ik(cls, value: Any) -> Optional[int]:
+    def _normalize_ik(cls, value: Any) -> int:
         if value is None:
             return 23000
         try:
@@ -62,53 +59,101 @@ class PatternFormatModel(BaseModel):
 
 
 class PatternRecord(BaseModel):
-    device: str = Field(..., min_length=1)
-    action: str = Field(..., min_length=1)
-    formats: List[PatternFormatModel] = Field(..., min_items=1)
+    device_id: Optional[str] = Field(None, description="Device identifier (UUID)")
+    device: Optional[str] = Field(None, description="Device name")
+    device_description: Optional[str] = Field("", description="Device description")
+    action_id: Optional[str] = Field(None, description="Action identifier (UUID)")
+    action: Optional[str] = Field(None, description="Action name")
+    action_description: Optional[str] = Field("", description="Action description")
+    patterns: List[PatternModel] = Field(..., min_items=1, description="Patterns linked to this action")
+
+    @model_validator(mode="after")
+    def _ensure_identifiers(self) -> "PatternRecord":
+        if not self.device_id and not self.device:
+            self.device = None
+        if not self.action_id and not self.action:
+            self.action = None
+        return self
+
+
+class ActionResponse(BaseModel):
+    id: str
+    device_id: str
+    name: str
+    description: Optional[str]
+    created_at: Optional[str]
+    updated_at: Optional[str]
+    patterns: List[PatternModel]
+
+
+class DeviceResponse(BaseModel):
+    id: str
+    name: str
+    description: Optional[str]
+    created_at: Optional[str]
+    updated_at: Optional[str]
+    actions: List[ActionResponse]
+
+
+ActionResponse.model_rebuild()
+DeviceResponse.model_rebuild()
 
 
 class PatternListResponse(BaseModel):
-    patterns: List[PatternRecord]
+    devices: List[DeviceResponse]
 
 
-class SendPatternRequest(BaseModel):
-    device: Optional[str] = Field(None, description="Device name for stored pattern")
-    action: Optional[str] = Field(None, description="Action name for stored pattern")
-    format: Optional[PatternFormatLiteral] = Field(
-        None,
-        description="Format for custom pattern",
-    )
-    data: Optional[List[str]] = Field(
-        None,
-        description="Payload for custom pattern (applies when device/action are omitted)",
-    )
-    ik: Optional[int] = Field(None, description="Inter-key delay (alias for carrier)")
-    carrier: Optional[int] = Field(None, description="Deprecated alias for ik")
-    repeat: Optional[int] = Field(None, description="Repeat count for IR transmission", ge=1)
+class SendPatternPayload(BaseModel):
+    device: Optional[str] = Field(None, description="Device identifier (UUID or name)")
+    device_name: Optional[str] = Field(None, description="Device name override")
+    action: Optional[str] = Field(None, description="Action identifier (UUID or name)")
+    action_name: Optional[str] = Field(None, description="Action name override")
+    pattern: Optional[str] = Field(None, description="Pattern identifier (UUID)")
+    format: Optional[PatternFormatLiteral] = Field(None, description="Pattern format for custom payload")
+    data: Optional[List[str]] = Field(None, description="Custom pattern payload")
+    repeat: Optional[int] = Field(None, ge=1, description="Repeat override")
+    ik: Optional[int] = Field(None, ge=1, description="Inter-key delay override")
+    save: Optional[bool] = Field(False, description="Persist custom payload")
 
     @field_validator("data", mode="before")
-    def _ensure_optional_list(cls, value: Any) -> Optional[List[str]]:
+    def _normalize_data(cls, value: Any) -> Optional[List[str]]:
         if value is None:
             return None
         if isinstance(value, list):
             return [str(item) for item in value]
         if isinstance(value, str):
+            if not value:
+                return []
             return [value]
-        raise ValueError("data must be a list or string when provided")
+        raise ValueError("data must be a list or string")
+
+    @field_validator("repeat", "ik", mode="before")
+    def _normalize_ints(cls, value: Any) -> Optional[int]:
+        if value is None:
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("repeat/ik must be integers") from exc
+
+    @field_validator("save", mode="before")
+    def _normalize_bool(cls, value: Any) -> bool:
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return False
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+        if isinstance(value, (int, float)):
+            return bool(value)
+        return False
 
     @model_validator(mode="after")
-    def _validate_custom_pattern(self) -> "SendPatternRequest":
-        if not self.device and not self.action:
-            if self.format is None:
-                raise ValueError("format is required for custom patterns")
-            if not self.data:
-                raise ValueError("data is required for custom patterns")
-        if self.ik is None and self.carrier is not None:
-            self.ik = self.carrier
-        if self.repeat is not None and self.repeat < 1:
-            raise ValueError("repeat must be >= 1 when provided")
-        if self.ik is not None and self.ik <= 0:
-            raise ValueError("ik must be > 0 when provided")
+    def _validate_payload(self) -> "SendPatternPayload":
+        if not self.pattern and not self.action and not self.device and not self.data:
+            raise ValueError("Provide pattern id, action/device identifiers, or custom data to send")
+        if self.data and not self.format:
+            raise ValueError("format is required when providing custom data")
         return self
 
 
@@ -128,3 +173,43 @@ class ReceivePatternRequest(BaseModel):
 
 class ErrorResponse(BaseModel):
     detail: str
+
+
+class DevicePayload(BaseModel):
+    name: Optional[str] = Field(None, description="Device name")
+    description: Optional[str] = Field("", description="Device description")
+
+    @model_validator(mode="after")
+    def _ensure_name(self) -> "DevicePayload":
+        if not self.name or not self.name.strip():
+            raise ValueError("Device name is required")
+        self.name = self.name.strip()
+        return self
+
+
+class DeviceUpdatePayload(BaseModel):
+    name: Optional[str] = Field(None, description="Updated device name")
+    description: Optional[str] = Field(None, description="Updated device description")
+
+
+class ActionPayload(BaseModel):
+    device_id: Optional[str] = Field(None, description="Existing device identifier")
+    device_name: Optional[str] = Field(None, description="Device name (if id not provided)")
+    name: Optional[str] = Field(None, description="Action name")
+    description: Optional[str] = Field("", description="Action description")
+
+    @model_validator(mode="after")
+    def _ensure_fields(self) -> "ActionPayload":
+        if not self.device_id and (not self.device_name or not self.device_name.strip()):
+            raise ValueError("device_id or device_name is required")
+        if not self.name or not self.name.strip():
+            raise ValueError("Action name is required")
+        self.name = self.name.strip()
+        if self.device_name is not None:
+            self.device_name = self.device_name.strip()
+        return self
+
+
+class ActionUpdatePayload(BaseModel):
+    name: Optional[str] = Field(None, description="Updated action name")
+    description: Optional[str] = Field(None, description="Updated action description")

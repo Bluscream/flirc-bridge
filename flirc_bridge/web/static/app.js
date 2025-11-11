@@ -7,7 +7,7 @@ if (contextScript && contextScript.textContent) {
     console.warn("Unable to parse app context", error);
   }
 }
-const patternsData = appContext.patterns || {};
+const devicesData = appContext.devices || [];
 const requiresToken = Boolean(appContext.requiresToken);
 let authToken = requiresToken ? window.localStorage.getItem("webToken") : null;
 const alertsRoot = document.getElementById("alerts-root");
@@ -17,6 +17,36 @@ const patternFormatSelect = document.getElementById("pattern-format");
 const patternDataInput = document.getElementById("pattern-data");
 const patternRepeatInput = document.getElementById("pattern-repeat");
 const patternIkInput = document.getElementById("pattern-ik");
+const deviceIdField = document.getElementById("device-id-field");
+const actionIdField = document.getElementById("action-id-field");
+const patternIdField = document.getElementById("pattern-id-field");
+
+const deviceMap = new Map();
+const actionMap = new Map();
+const patternMap = new Map();
+
+devicesData.forEach((device) => {
+  if (!device || !device.id) {
+    return;
+  }
+  deviceMap.set(device.id, device);
+  (device.actions || []).forEach((action) => {
+    if (!action || !action.id) {
+      return;
+    }
+    action.device_id = action.device_id || device.id;
+    action.device_name = device.name;
+    actionMap.set(action.id, action);
+    (action.patterns || []).forEach((pattern) => {
+      if (!pattern || !pattern.id) {
+        return;
+      }
+      pattern.action_id = pattern.action_id || action.id;
+      pattern.device_id = device.id;
+      patternMap.set(pattern.id, pattern);
+    });
+  });
+});
 
 function showToast(message, variant = "info", delay = 4000) {
   if (!alertsRoot || typeof bootstrap === "undefined" || !bootstrap.Toast) {
@@ -102,25 +132,27 @@ async function handleAuthResponse(response) {
 
 async function submitPattern(event) {
   event.preventDefault();
-  if (
-    !deviceInput ||
-    !actionInput ||
-    !patternFormatSelect ||
-    !patternDataInput
-  ) {
+  if (!patternFormatSelect || !patternDataInput) {
     showToast("Pattern form is not available on this page.", "danger");
     return false;
   }
 
-  const device = deviceInput.value.trim();
-  const action = actionInput.value.trim();
+  const deviceName = deviceInput ? deviceInput.value.trim() : "";
+  const actionName = actionInput ? actionInput.value.trim() : "";
+  const deviceId = deviceIdField ? deviceIdField.value.trim() : "";
+  const actionId = actionIdField ? actionIdField.value.trim() : "";
+  const patternId = patternIdField ? patternIdField.value.trim() : "";
   const formatValue = patternFormatSelect.value;
   const dataRaw = patternDataInput.value;
   const repeatRaw = patternRepeatInput ? patternRepeatInput.value : "";
   const ikRaw = patternIkInput ? patternIkInput.value : "";
 
-  if (!device || !action) {
-    showToast("Device and action are required.", "warning");
+  if (!deviceId && !deviceName) {
+    showToast("Device is required.", "warning");
+    return false;
+  }
+  if (!actionId && !actionName) {
+    showToast("Action is required.", "warning");
     return false;
   }
 
@@ -133,8 +165,8 @@ async function submitPattern(event) {
   let repeatValue = null;
   if (repeatRaw !== "" && repeatRaw !== null && repeatRaw !== undefined) {
     repeatValue = Number(repeatRaw);
-    if (Number.isNaN(repeatValue) || repeatValue < 0) {
-      showToast("Repeat must be a non-negative integer.", "warning");
+    if (Number.isNaN(repeatValue) || repeatValue < 1) {
+      showToast("Repeat must be a positive integer.", "warning");
       return false;
     }
   }
@@ -148,25 +180,35 @@ async function submitPattern(event) {
     }
   }
 
-  const formatPayload = {
+  const patternPayload = {
+    id: patternId || undefined,
     format: formatValue,
     data: normalized.data,
+    repeat: repeatValue || 1,
+    ik: ikValue || 23000,
   };
-  if (repeatValue !== null) {
-    formatPayload.repeat = repeatValue;
-  }
-  if (ikValue !== null) {
-    formatPayload.ik = ikValue;
-  }
 
-  const payload = { device, action, formats: [formatPayload] };
+  const payload = {
+    device_id: deviceId || undefined,
+    device: deviceName || undefined,
+    action_id: actionId || undefined,
+    action: actionName || undefined,
+    patterns: [patternPayload],
+  };
+
   let headers = buildHeaders({ "Content-Type": "application/json" });
   if (requiresToken && headers === null) {
     return false;
   }
   headers = headers || { "Content-Type": "application/json" };
-  const response = await fetch("/api/patterns", {
-    method: "POST",
+
+  const endpoint = patternId
+    ? `/api/patterns/${encodeURIComponent(patternId)}`
+    : "/api/patterns";
+  const method = patternId ? "PUT" : "POST";
+
+  const response = await fetch(endpoint, {
+    method,
     headers,
     body: JSON.stringify(payload),
   });
@@ -186,17 +228,54 @@ async function submitPattern(event) {
   return false;
 }
 
-async function sendPattern(device, action) {
+async function sendAction(deviceId, actionId) {
   let headers = buildHeaders({ "Content-Type": "application/json" });
   if (requiresToken && headers === null) {
     return;
   }
   headers = headers || { "Content-Type": "application/json" };
+  const device = deviceMap.get(deviceId);
+  const action = actionMap.get(actionId);
   try {
     const response = await fetch("/api/send", {
       method: "POST",
       headers,
-      body: JSON.stringify({ device, action }),
+      body: JSON.stringify({ device: deviceId, action: actionId }),
+    });
+    if (!response.ok) {
+      if (!(await handleAuthResponse(response))) {
+        return;
+      }
+      const data = await response.json().catch(() => ({}));
+      showToast(
+        "Failed to send action: " + (data.detail || response.statusText),
+        "danger",
+        5000
+      );
+    } else {
+      const deviceLabel = device ? device.name : deviceId;
+      const actionLabel = action ? action.name : actionId;
+      showToast(`Sent ${deviceLabel}/${actionLabel}`, "success", 2500);
+    }
+  } catch (error) {
+    showToast(`Failed to send action: ${error}`, "danger", 5000);
+  }
+}
+
+async function sendPatternById(patternId) {
+  let headers = buildHeaders({ "Content-Type": "application/json" });
+  if (requiresToken && headers === null) {
+    return;
+  }
+  headers = headers || { "Content-Type": "application/json" };
+  const pattern = patternMap.get(patternId);
+  const action = pattern ? actionMap.get(pattern.action_id) : null;
+  const device = action ? deviceMap.get(action.device_id) : null;
+  try {
+    const response = await fetch("/api/send", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ pattern: patternId }),
     });
     if (!response.ok) {
       if (!(await handleAuthResponse(response))) {
@@ -209,150 +288,92 @@ async function sendPattern(device, action) {
         5000
       );
     } else {
-      showToast(`Sent ${device}/${action}`, "success", 2500);
+      const labelParts = [];
+      if (device) {
+        labelParts.push(device.name);
+      }
+      if (action) {
+        labelParts.push(action.name);
+      }
+      const label =
+        labelParts.length > 0 ? labelParts.join(" / ") : `Pattern ${patternId}`;
+      showToast(`Sent ${label}`, "success", 2500);
     }
   } catch (error) {
     showToast(`Failed to send pattern: ${error}`, "danger", 5000);
   }
 }
 
-async function sendPatternFormat(device, action, formatName) {
-  const deviceEntry = patternsData?.[device];
-  if (!deviceEntry) {
-    showToast(`No patterns found for device ${device}`, "warning");
+function editPattern(patternId) {
+  const pattern = patternMap.get(patternId);
+  if (!pattern) {
+    showToast("Pattern not found.", "warning");
     return;
   }
-  const actionEntry = deviceEntry?.[action];
-  if (!actionEntry) {
-    showToast(`No action ${action} for device ${device}`, "warning");
-    return;
-  }
-  const formatEntry = actionEntry?.[formatName];
-  if (!formatEntry) {
-    showToast(`No format ${formatName} for ${device}/${action}`, "warning");
-    return;
-  }
-
-  const parsedEntry = parseStoredPatternEntry(formatEntry);
-  if (!parsedEntry.data || parsedEntry.data.length === 0) {
-    showToast(
-      `Pattern data missing for ${device}/${action} (${formatName})`,
-      "warning"
-    );
-    return;
-  }
-
-  const payload = {
-    format: (formatName || "").toLowerCase(),
-    data: parsedEntry.data.map((item) => String(item)),
-  };
-  if (parsedEntry.repeat !== undefined && parsedEntry.repeat !== null) {
-    payload.repeat = Number(parsedEntry.repeat);
-  }
-  if (parsedEntry.ik !== undefined && parsedEntry.ik !== null) {
-    payload.ik = Number(parsedEntry.ik);
-  }
-
-  let headers = buildHeaders({ "Content-Type": "application/json" });
-  if (requiresToken && headers === null) {
-    return;
-  }
-  headers = headers || { "Content-Type": "application/json" };
-
-  try {
-    const response = await fetch("/api/send", {
-      method: "POST",
-      headers,
-      body: JSON.stringify(payload),
-    });
-    if (!response.ok) {
-      if (!(await handleAuthResponse(response))) {
-        return;
-      }
-      const data = await response.json().catch(() => ({}));
-      showToast(
-        `Failed to send ${device}/${action} (${formatName}): ` +
-          (data.detail || response.statusText),
-        "danger",
-        5000
-      );
-    } else {
-      const suffixParts = [];
-      if (payload.repeat !== undefined && payload.repeat !== null) {
-        suffixParts.push(`repeat ${payload.repeat}`);
-      }
-      if (payload.ik !== undefined && payload.ik !== null) {
-        suffixParts.push(`ik ${payload.ik}`);
-      }
-      const suffix = suffixParts.length ? ` (${suffixParts.join(", ")})` : "";
-      showToast(
-        `Sent ${device}/${action} (${formatName})${suffix}`,
-        "success",
-        2500
-      );
-    }
-  } catch (error) {
-    showToast(
-      `Failed to send ${device}/${action} (${formatName}): ${error}`,
-      "danger",
-      5000
-    );
-  }
-}
-
-function editPattern(device, action, formatName) {
-  const deviceEntry = patternsData?.[device];
-  if (!deviceEntry) {
-    showToast(`Device ${device} not found`, "warning");
-    return;
-  }
-  const actionEntry = deviceEntry?.[action];
-  if (!actionEntry || Object.keys(actionEntry).length === 0) {
-    showToast(`Action ${action} not found for ${device}`, "warning");
-    return;
-  }
-
-  let targetFormat = formatName;
-  let storedEntry = targetFormat ? actionEntry[targetFormat] : null;
-  if (!storedEntry) {
-    const fallback = Object.entries(actionEntry)[0];
-    if (!fallback) {
-      showToast(`No formats available for ${device}/${action}`, "warning");
-      return;
-    }
-    targetFormat = fallback[0];
-    storedEntry = fallback[1];
-  }
-
-  const parsedEntry = parseStoredPatternEntry(storedEntry);
+  const action = actionMap.get(pattern.action_id);
+  const device = action ? deviceMap.get(action.device_id) : null;
 
   if (deviceInput) {
-    deviceInput.value = device;
+    deviceInput.value = device ? device.name : "";
   }
   if (actionInput) {
-    actionInput.value = action;
+    actionInput.value = action ? action.name : "";
   }
   if (patternFormatSelect) {
-    patternFormatSelect.value = targetFormat;
+    patternFormatSelect.value = pattern.format || "raw";
   }
   if (patternRepeatInput) {
-    patternRepeatInput.value = parsedEntry.repeat ?? 1;
+    patternRepeatInput.value = pattern.repeat || 1;
   }
   if (patternIkInput) {
-    patternIkInput.value = parsedEntry.ik ?? 23000;
+    patternIkInput.value = pattern.ik || 23000;
   }
   if (patternDataInput) {
-    patternDataInput.value = patternDataToString(
-      targetFormat,
-      parsedEntry.data
-    );
+    patternDataInput.value = patternDataToString(pattern.format, pattern.data);
+  }
+  if (deviceIdField) {
+    deviceIdField.value = device ? device.id : "";
+  }
+  if (actionIdField) {
+    actionIdField.value = action ? action.id : "";
+  }
+  if (patternIdField) {
+    patternIdField.value = pattern.id;
   }
 
   window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
 }
 
-async function deleteAction(device, action) {
-  if (!confirm(`Delete pattern ${device} / ${action}?`)) {
+async function deleteActionById(actionId) {
+  if (!confirm("Delete this action and all associated patterns?")) {
+    return;
+  }
+  let headers = buildHeaders();
+  if (requiresToken && headers === null) {
+    return;
+  }
+  headers = headers || {};
+  const response = await fetch(`/api/actions/${encodeURIComponent(actionId)}`, {
+    method: "DELETE",
+    headers,
+  });
+  if (!response.ok) {
+    if (!(await handleAuthResponse(response))) {
+      return;
+    }
+    const data = await response.json().catch(() => ({}));
+    showToast(
+      "Failed to delete action: " + (data.detail || response.statusText),
+      "danger",
+      5000
+    );
+  } else {
+    window.location.reload();
+  }
+}
+
+async function deleteDeviceById(deviceId) {
+  if (!confirm("Delete this device and all associated actions and patterns?")) {
     return;
   }
   let headers = buildHeaders();
@@ -361,7 +382,7 @@ async function deleteAction(device, action) {
   }
   headers = headers || {};
   const response = await fetch(
-    `/api/patterns/${encodeURIComponent(device)}/${encodeURIComponent(action)}`,
+    `/api/devices/${encodeURIComponent(deviceId)}`,
     {
       method: "DELETE",
       headers,
@@ -373,7 +394,7 @@ async function deleteAction(device, action) {
     }
     const data = await response.json().catch(() => ({}));
     showToast(
-      "Failed to delete pattern: " + (data.detail || response.statusText),
+      "Failed to delete device: " + (data.detail || response.statusText),
       "danger",
       5000
     );
@@ -382,46 +403,8 @@ async function deleteAction(device, action) {
   }
 }
 
-async function deleteDevice(device) {
-  if (!confirm(`Delete all patterns for device ${device}?`)) {
-    return;
-  }
-  let headers = buildHeaders();
-  if (requiresToken && headers === null) {
-    return;
-  }
-  headers = headers || {};
-  const actions = Object.keys(patternsData[device] || {});
-  for (const action of actions) {
-    const response = await fetch(
-      `/api/patterns/${encodeURIComponent(device)}/${encodeURIComponent(
-        action
-      )}`,
-      {
-        method: "DELETE",
-        headers,
-      }
-    );
-    if (!response.ok) {
-      if (!(await handleAuthResponse(response))) {
-        return;
-      }
-      const data = await response.json().catch(() => ({}));
-      showToast(
-        `Failed to delete ${device}/${action}: ${
-          data.detail || response.statusText
-        }`,
-        "danger",
-        5000
-      );
-      return;
-    }
-  }
-  window.location.reload();
-}
-
-async function deletePatternFormat(device, action, formatName) {
-  if (!confirm(`Delete ${formatName} format for ${device}/${action}?`)) {
+async function deletePatternById(patternId) {
+  if (!confirm("Delete this pattern?")) {
     return;
   }
   let headers = buildHeaders({ "Content-Type": "application/json" });
@@ -429,12 +412,9 @@ async function deletePatternFormat(device, action, formatName) {
     return;
   }
   headers = headers || { "Content-Type": "application/json" };
-
   try {
     const response = await fetch(
-      `/api/patterns/${encodeURIComponent(device)}/${encodeURIComponent(
-        action
-      )}/${encodeURIComponent(formatName)}`,
+      `/api/patterns/${encodeURIComponent(patternId)}`,
       {
         method: "DELETE",
         headers,
@@ -446,21 +426,16 @@ async function deletePatternFormat(device, action, formatName) {
       }
       const data = await response.json().catch(() => ({}));
       showToast(
-        `Failed to delete ${device}/${action} (${formatName}): ` +
-          (data.detail || response.statusText),
+        "Failed to delete pattern: " + (data.detail || response.statusText),
         "danger",
         5000
       );
       return;
     }
-    showToast(`Deleted ${device}/${action} (${formatName})`, "success", 2500);
+    showToast("Deleted pattern", "success", 2500);
     window.location.reload();
   } catch (error) {
-    showToast(
-      `Failed to delete ${device}/${action} (${formatName}): ${error}`,
-      "danger",
-      5000
-    );
+    showToast(`Failed to delete pattern: ${error}`, "danger", 5000);
   }
 }
 
@@ -574,40 +549,6 @@ function normalizePatternPayload(format, rawValue) {
   return { data: parts };
 }
 
-function parseStoredPatternEntry(entry) {
-  if (!entry) {
-    return { data: [], repeat: 1, ik: 23000, hash: null };
-  }
-  if (Array.isArray(entry)) {
-    return {
-      data: entry.map((item) => String(item)),
-      repeat: 1,
-      ik: 23000,
-      hash: null,
-    };
-  }
-  if (typeof entry === "object") {
-    const values = Array.isArray(entry.data)
-      ? entry.data.map((item) => String(item))
-      : entry.data
-      ? [String(entry.data)]
-      : [];
-    const repeatValue =
-      entry.repeat === undefined || entry.repeat === null
-        ? 1
-        : Number(entry.repeat);
-    const ikValue =
-      entry.ik === undefined || entry.ik === null ? 23000 : Number(entry.ik);
-    return {
-      data: values,
-      repeat: Number.isNaN(repeatValue) || repeatValue < 1 ? 1 : repeatValue,
-      ik: Number.isNaN(ikValue) || ikValue <= 0 ? 23000 : ikValue,
-      hash: entry.hash || null,
-    };
-  }
-  return { data: [String(entry)], repeat: 1, ik: 23000, hash: null };
-}
-
 function patternDataToString(format, data) {
   if (!Array.isArray(data) || data.length === 0) {
     return "";
@@ -624,17 +565,27 @@ if (patternForm) {
   patternForm.addEventListener("submit", submitPattern);
 }
 
-window.sendPattern = sendPattern;
-window.sendPatternFormat = sendPatternFormat;
+window.sendAction = sendAction;
+window.sendPatternById = sendPatternById;
 window.editPattern = editPattern;
-window.deleteAction = deleteAction;
-window.deleteDevice = deleteDevice;
+window.deleteActionById = deleteActionById;
+window.deleteDeviceById = deleteDeviceById;
+window.deletePatternById = deletePatternById;
 window.scrollToAddPattern = scrollToAddPattern;
 
 function scrollToAddPattern() {
   if (deviceInput) {
     deviceInput.value = "";
     deviceInput.focus();
+  }
+  if (deviceIdField) {
+    deviceIdField.value = "";
+  }
+  if (actionIdField) {
+    actionIdField.value = "";
+  }
+  if (patternIdField) {
+    patternIdField.value = "";
   }
   if (actionInput) {
     actionInput.value = "";

@@ -17,18 +17,28 @@ This project recreates the functionality of the `breeily/flirc_bridge` container
 
 ## Features
 
-- **Pattern management UI** – visit `/` to view and manage stored patterns (grouped by device/action, with Send/Edit/Delete controls).
-- **REST API**:
+- **Pattern management UI** – visit `/` to view and manage stored devices, actions, and individual patterns (with Send/Edit/Delete controls).
+- **REST API** (all endpoints accept query-string or JSON body parameters; body values take precedence):
   - `GET /api/status` – runtime status, tool versions, and configuration summary.
-  - `GET /api/patterns.json` – export all patterns in the original JSON structure.
-  - `POST /api/patterns` – add or update patterns.
-  - `PUT /api/patterns/{device}/{action}` – replace an existing pattern.
-  - `DELETE /api/patterns/{device}/{action}` – remove a pattern.
-  - `POST /api/send` – transmit a stored or custom pattern via `irtools`.
+  - `GET /api/patterns.json` – export all devices/actions/patterns as JSON.
+  - `POST /api/devices`, `PUT /api/devices/{device_id}`, `DELETE /api/devices/{device_id}` – manage devices.
+  - `POST /api/actions`, `PUT /api/actions/{action_id}`, `DELETE /api/actions/{action_id}` – manage actions (linked to devices).
+  - `POST /api/patterns`, `PUT /api/patterns/{pattern_id}`, `DELETE /api/patterns/{pattern_id}` – manage individual patterns.
+  - `POST /api/send` (also responds to GET/PUT/PATCH/DELETE) – transmit stored patterns (by action/pattern UUID) or custom payloads. Set `save=1` to store custom payloads.
   - `POST /api/receive` – capture a pattern using `irtools listen` (optionally save it).
-- **MQTT integration** – publishes Home Assistant discovery buttons for every stored pattern and listens for commands on:
-  - `flirc_bridge/commands/<device_action_format>` – triggers stored patterns.
-  - `flirc_bridge/send` – accepts custom payloads (`{"format": "...", "data": [...]}`).
+- **MQTT integration** – publishes Home Assistant discovery buttons for every action and, when pressed, sends all patterns assigned to that action (in order). Also listens for custom payloads on:
+  - `${MQTT_BASE_TOPIC}/commands/...` – triggers stored actions.
+  - `${MQTT_BASE_TOPIC}/send` – accepts custom payloads (`{"format": "...", "data": [...], "repeat": 1, "ik": 23000}`).
+
+## Data model
+
+Patterns are stored across three tables:
+
+- **devices** – `id (UUID)`, `name`, `description`, `created_at`, `updated_at`
+- **actions** – `id (UUID)`, `device_id`, `name`, `description`, `created_at`, `updated_at`
+- **patterns** – `id (UUID)`, `action_id`, `format (raw|csv|pronto)`, `data` (JSON array of strings), `repeat`, `ik`, `hash` (md5 of format+data+repeat+ik), `created_at`, `updated_at`, `sent_at`
+
+Every action may hold multiple patterns; when an action is triggered (via web, API, or MQTT) all of its patterns are transmitted in database order. If only a single pattern should be used, reference it directly by UUID.
 
 ## Module layout
 
@@ -168,22 +178,67 @@ Import `unraid/template.xml` into your Unraid templates directory to expose the 
 
 ## REST examples
 
-### Add a pattern
+### Create a device
+
+```bash
+curl -X POST http://localhost:8000/api/devices \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Compact Space Heater",
+    "description": "Living room heater"
+  }'
+```
+
+The response includes the `id` (UUID) for the device.
+
+### Create an action
+
+```bash
+curl -X POST http://localhost:8000/api/actions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "device_id": "DEVICE_UUID_FROM_PREVIOUS_STEP",
+    "name": "Toggle",
+    "description": "Power toggle"
+  }'
+```
+
+### Add a pattern to that action
 
 ```bash
 curl -X POST http://localhost:8000/api/patterns \
   -H "Content-Type: application/json" \
   -d '{
-    "device": "Compact Space Heater",
-    "action": "Toggle",
-    "formats": [
-      {"format": "raw", "data": ["+9094 -4399 ..."]},
-      {"format": "pronto", "data": ["0000 006D ..."]}
+    "device_id": "DEVICE_UUID_FROM_PREVIOUS_STEP",
+    "action_id": "ACTION_UUID_FROM_PREVIOUS_STEP",
+    "patterns": [
+      {
+        "format": "raw",
+        "data": ["+9094 -4399 ..."],
+        "repeat": 1,
+        "ik": 23000
+      }
     ]
   }'
 ```
 
-### Send a custom pattern
+### Send a stored action
+
+```bash
+curl -X POST http://localhost:8000/api/send \
+  -H "Content-Type: application/json" \
+  -d '{"device": "DEVICE_UUID", "action": "ACTION_UUID"}'
+```
+
+### Send a specific pattern
+
+```bash
+curl -X POST http://localhost:8000/api/send \
+  -H "Content-Type: application/json" \
+  -d '{"pattern": "PATTERN_UUID"}'
+```
+
+### Send a custom pattern (and optionally save it)
 
 ```bash
 curl -X POST http://localhost:8000/api/send \
@@ -192,7 +247,10 @@ curl -X POST http://localhost:8000/api/send \
     "format": "raw",
     "data": ["+9094 -4399 ..."],
     "repeat": 1,
-    "ik": 23000
+    "ik": 23000,
+    "save": true,
+    "device_name": "Compact Space Heater",
+    "action_name": "Toggle"
   }'
 ```
 
@@ -211,6 +269,40 @@ curl -X POST http://localhost:8000/api/receive \
 ```
 
 This will listen with `irtools`, store the result in SQLite, and immediately expose it via MQTT.
+
+### Export the full pattern catalogue
+
+```bash
+curl http://localhost:8000/api/patterns.json
+```
+
+Sample response (truncated):
+
+```json
+{
+  "devices": [
+    {
+      "id": "0f7a3a5b-1e3a-475a-9f7c-4f5f6fe70f54",
+      "name": "Compact Space Heater",
+      "actions": [
+        {
+          "id": "1a42291d-7f57-4a41-bf1c-0f805f0f8a8f",
+          "name": "Toggle",
+          "patterns": [
+            {
+              "id": "8df1adac-1aa5-4b3d-9f44-1f466c0b1ead",
+              "format": "raw",
+              "repeat": 1,
+              "ik": 23000,
+              "data": ["+9094", "-4399", "..."]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
 
 ## MQTT custom payload
 

@@ -36,9 +36,11 @@ def _parse_version_output(output: str, tool_hint: Optional[str] = None) -> Dict[
     return data
 
 
+# region LegacyCompat
 def _collect_version_info(command: str) -> Dict[str, Any]:
     """Deprecated helper retained for backwards compatibility."""
     return {"command": command, "error": "deprecated"}
+# endregion
 
 
 def create_app(settings_override: Optional[Settings] = None, runtime: Optional[BridgeRuntime] = None) -> FastAPI:
@@ -211,24 +213,28 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
     @app.get("/", response_class=HTMLResponse)
     def index(request: Request):
         with get_session() as session:
-            records = export_patterns(session)
+            pattern_response = export_patterns(session)
+        devices = pattern_response.devices
+        devices_json = pattern_response.model_dump()["devices"]
         context = _build_template_context(
             request,
             active_page="send",
-            extra={"patterns": records},
-            app_context={"patterns": records, "requiresToken": bool(settings.web_token)},
+            extra={"devices": devices},
+            app_context={"devices": devices_json, "requiresToken": bool(settings.web_token)},
         )
         return templates.TemplateResponse("index.html.jinja", context)
 
     @app.get("/manage", response_class=HTMLResponse)
     def manage_page(request: Request):
         with get_session() as session:
-            records = export_patterns(session)
+            pattern_response = export_patterns(session)
+        devices = pattern_response.devices
+        devices_json = pattern_response.model_dump()["devices"]
         context = _build_template_context(
             request,
             active_page="manage",
-            extra={"patterns": records},
-            app_context={"patterns": records, "requiresToken": bool(settings.web_token)},
+            extra={"devices": devices},
+            app_context={"devices": devices_json, "requiresToken": bool(settings.web_token)},
         )
         return templates.TemplateResponse("manage.html.jinja", context)
 

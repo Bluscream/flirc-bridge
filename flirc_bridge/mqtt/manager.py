@@ -7,7 +7,7 @@ import threading
 import time
 import uuid
 from datetime import datetime
-from typing import Callable, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Optional, Set
 
 import paho.mqtt.client as mqtt
 
@@ -141,8 +141,11 @@ class MQTTManager:
     def _config_topic_for_object_id(self, object_id: str) -> str:
         return f"{self.settings.mqtt_discovery_prefix}/button/{self._safe_prefix}_{object_id}/config"
 
-    def publish_discovery(self, device: Device, action: Action, pattern: Pattern) -> None:
-        object_id = slugify(device.name, action.name)
+    def publish_discovery(self, device: Device, action: Action, patterns: List[Pattern]) -> None:
+        if not patterns:
+            return
+        primary = patterns[0]
+        object_id = self._object_suffix(action)
         topic = self._config_topic_for_object_id(object_id)
         command_topic = self._command_topic(object_id)
         payload = {
@@ -160,16 +163,33 @@ class MQTTManager:
         }
         self.client.publish(topic, json.dumps(payload), retain=self.settings.mqtt_retain)
 
-        pattern_format = pattern.format
-        pattern_data = pattern.data
-        device_name = device.name
-        action_name = action.name
         attributes_payload = {
-            "format": pattern_format,
-            "hash": pattern.hash,
-            "repeat": pattern.repeat or 1,
-            "ik": pattern.ik or 23000,
-            "updated_at": (pattern.updated_at or pattern.created_at or datetime.utcnow()).isoformat(),
+            "device": {
+                "id": device.id,
+                "name": device.name,
+            },
+            "action": {
+                "id": action.id,
+                "name": action.name,
+            },
+            "primary_pattern": {
+                "id": primary.id,
+                "format": primary.format,
+                "repeat": primary.repeat or 1,
+                "ik": primary.ik or 23000,
+                "hash": primary.hash,
+                "updated_at": (primary.updated_at or primary.created_at or datetime.utcnow()).isoformat(),
+            },
+            "patterns": [
+                {
+                    "id": pattern.id,
+                    "format": pattern.format,
+                    "repeat": pattern.repeat or 1,
+                    "ik": pattern.ik or 23000,
+                    "hash": pattern.hash,
+                }
+                for pattern in patterns
+            ],
         }
         self.client.publish(
             self._attributes_topic(object_id),
@@ -178,41 +198,49 @@ class MQTTManager:
         )
 
         def handler() -> None:
-            try:
-                payload_values = json.loads(pattern_data)
-                repeat_value = pattern.repeat or 1
-                ik_value = pattern.ik or 23000
-                send_ir_pattern(
-                    pattern_format,
-                    payload_values,
-                    ik=ik_value,
-                    repeat=repeat_value,
-                    irtools=self.irtools,
-                )
-                logger.info("Sent pattern %s/%s (%s)", device_name, action_name, pattern_format)
-            except (ToolError, json.JSONDecodeError) as exc:
-                logger.error(
-                    "Failed to send pattern %s/%s (%s): %s",
-                    device_name,
-                    action_name,
-                    pattern_format,
-                    exc,
-                )
+            for pattern in patterns:
+                try:
+                    payload_values = json.loads(pattern.data or "[]")
+                    repeat_value = pattern.repeat or 1
+                    ik_value = pattern.ik or 23000
+                    send_ir_pattern(
+                        pattern.format,
+                        payload_values,
+                        ik=ik_value,
+                        repeat=repeat_value,
+                        irtools=self.irtools,
+                    )
+                    logger.info(
+                        "Sent pattern %s/%s (%s, id=%s)",
+                        device.name,
+                        action.name,
+                        pattern.format,
+                        pattern.id,
+                    )
+                except (ToolError, json.JSONDecodeError) as exc:
+                    logger.error(
+                        "Failed to send pattern %s/%s (%s, id=%s): %s",
+                        device.name,
+                        action.name,
+                        pattern.format,
+                        pattern.id,
+                        exc,
+                    )
 
         with self._lock:
             self._pattern_lookup[command_topic] = handler
             self._published_object_ids.add(object_id)
 
     def refresh_action(self, device: Device, action: Action) -> None:
-        pattern = self._select_primary_pattern(action)
-        if pattern is None:
+        patterns = self._sorted_patterns(action)
+        if not patterns:
             self.clear_discovery(device, action)
             return
         self.clear_discovery(device, action)
-        self.publish_discovery(device, action, pattern)
+        self.publish_discovery(device, action, patterns)
 
     def clear_discovery(self, device: Device, action: Action) -> None:
-        object_id = slugify(device.name, action.name)
+        object_id = self._object_suffix(action)
         config_topic = self._config_topic_for_object_id(object_id)
         self.client.publish(config_topic, "", retain=True)
         self.client.publish(
@@ -244,29 +272,29 @@ class MQTTManager:
             except Exception as exc:  # pragma: no cover - defensive
                 logger.warning("Failed to unpublish discovery topic %s: %s", config_topic, exc)
 
-    def publish_all(self, records: Dict[str, Dict[str, Dict[str, str]]]) -> None:
-        for device_name, actions in records.items():
-            for action_name, formats in actions.items():
-                first_entry = next(iter(formats.items()), None)
-                if not first_entry:
-                    continue
-                format_name, export_payload = first_entry
-                pattern_data = export_payload.get("data")
-                pattern_hash = export_payload.get("hash")
-                repeat_value = export_payload.get("repeat")
-                ik_value = export_payload.get("ik")
-                data_string = json.dumps(pattern_data) if pattern_data is not None else "[]"
-                dummy_device = Device(name=device_name)
-                dummy_action = Action(name=action_name, device=dummy_device)
-                dummy_pattern = Pattern(
-                    format=format_name,
-                    data=data_string,
-                    action=dummy_action,
-                    hash=pattern_hash,
-                    repeat=repeat_value if repeat_value not in (None, 0) else 1,
-                    ik=ik_value if ik_value not in (None, 0) else 23000,
-                )
-                dummy_action.patterns.append(dummy_pattern)
+    def publish_all(self, devices: List[Dict[str, Any]]) -> None:
+        for device_payload in devices:
+            device_name = device_payload.get("name", "Unknown Device")
+            device_id = device_payload.get("id")
+            dummy_device = Device(id=device_id, name=device_name)
+            for action_payload in device_payload.get("actions", []):
+                action_name = action_payload.get("name", "Unknown Action")
+                action_id = action_payload.get("id") or str(uuid.uuid4())
+                dummy_action = Action(id=action_id, name=action_name, device=dummy_device)
+                for pattern_payload in action_payload.get("patterns", []):
+                    pattern_id = pattern_payload.get("id") or str(uuid.uuid4())
+                    data_values = pattern_payload.get("data") or []
+                    data_string = json.dumps(data_values)
+                    dummy_pattern = Pattern(
+                        id=pattern_id,
+                        format=pattern_payload.get("format", "raw"),
+                        data=data_string,
+                        action=dummy_action,
+                        hash=pattern_payload.get("hash"),
+                        repeat=pattern_payload.get("repeat") or 1,
+                        ik=pattern_payload.get("ik") or 23000,
+                    )
+                    dummy_action.patterns.append(dummy_pattern)
                 self.refresh_action(dummy_device, dummy_action)
 
     def _handle_custom_payload(self, payload: str) -> None:
@@ -286,26 +314,29 @@ class MQTTManager:
         try:
             items = [str(item) for item in values] if isinstance(values, list) else [str(values)]
             ik_value = ik if ik is not None else carrier
-            send_ir_pattern(fmt, items, ik=ik_value, repeat=repeat, irtools=self.irtools)
+            repeat_value = repeat if repeat is not None else 1
+            send_ir_pattern(fmt, items, ik=ik_value, repeat=repeat_value, irtools=self.irtools)
             logger.info("Sent custom MQTT payload (%s)", fmt)
         except ToolError as exc:
             logger.error("Failed to send custom MQTT payload (%s): %s", fmt, exc)
 
-    def _select_primary_pattern(self, action: Action) -> Optional[Pattern]:
-        if not action.patterns:
-            return None
-        sorted_patterns = sorted(
+    def _sorted_patterns(self, action: Action) -> List[Pattern]:
+        return sorted(
             action.patterns,
             key=lambda pattern: (
                 pattern.created_at or datetime.min,
                 pattern.updated_at or datetime.min,
-                pattern.id or 0,
+                pattern.id or "",
             ),
         )
-        return sorted_patterns[0]
+
+    def _object_suffix(self, action: Action) -> str:
+        if action.id:
+            return action.id.replace("-", "_")
+        return slugify(action.device.name if action.device else "device", action.name, str(uuid.uuid4())[:8])
 
     def _config_topic(self, device: Device, action: Action) -> str:
-        object_id = slugify(device.name, action.name)
+        object_id = self._object_suffix(action)
         return self._config_topic_for_object_id(object_id)
 
 
