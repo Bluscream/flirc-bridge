@@ -85,7 +85,7 @@ def send_ir_pattern(
     data_list = list(data)
 
     repeat_value = 1 if repeat is None or repeat < 1 else repeat
-    ik_value = 23000 if ik is None or ik <= 0 else ik
+    ik_value = 23 if ik is None or ik <= 0 else ik
 
     ir = irtools or get_irtools()
     try:

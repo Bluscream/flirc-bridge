@@ -145,9 +145,9 @@ class BridgeRuntime:
     def reset_mqtt_discovery(self) -> int:
         if not self._mqtt_manager:
             raise RuntimeError("MQTT manager is not running")
-        cleared = self._mqtt_manager.clear_discovery()
+        cleared = self._mqtt_manager.unpublish_all()
         republished = self._republish_discovery()
-        return cleared + republished
+        return (cleared or 0) + republished
 
     def await_shutdown(self, timeout: Optional[float] = None) -> bool:
         return self._shutdown.wait(timeout)

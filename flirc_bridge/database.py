@@ -95,7 +95,7 @@ class Pattern(Base):
     format = Column(String(16), nullable=False, default=PatternFormatEnum.RAW.value)
     data = Column(Text, nullable=False)
     repeat = Column(Integer, nullable=False, default=1, server_default="1")
-    ik = Column(Integer, nullable=False, default=23000, server_default="23000")
+    ik = Column(Integer, nullable=False, default=23, server_default="23")
     hash = Column(String(32), nullable=False, index=True)
     created_at = Column(DateTime, default=datetime.utcnow, server_default=func.now())
     updated_at = Column(
@@ -239,7 +239,7 @@ def create_pattern(
     pattern_id: Optional[str] = None,
 ) -> Pattern:
     normalized_repeat = repeat if repeat >= 1 else 1
-    normalized_ik = ik if ik > 0 else 23000
+    normalized_ik = ik if ik > 0 else 23
     normalized_data = _normalize_data_for_hash(data)
     hash_value = compute_pattern_hash(fmt, normalized_data, repeat=normalized_repeat, ik=normalized_ik)
     pattern = Pattern(

@@ -156,7 +156,7 @@ def build_action_response(action: database.Action) -> ActionResponse:
 def build_pattern_model(pattern: database.Pattern) -> PatternModel:
     payload_data = _load_pattern_data(pattern.data)
     repeat_value = pattern.repeat or 1
-    ik_value = pattern.ik or 23000
+    ik_value = pattern.ik or 23
     pattern_hash = pattern.hash
     if not pattern_hash or len(pattern_hash) != 32:
         pattern_hash = compute_pattern_hash(pattern.format, payload_data, repeat=repeat_value, ik=ik_value)
@@ -241,7 +241,7 @@ def _save_pattern_model(
     model: PatternModel,
 ) -> database.Pattern:
     repeat_value = model.repeat if model.repeat >= 1 else 1
-    ik_value = model.ik if model.ik > 0 else 23000
+    ik_value = model.ik if model.ik > 0 else 23
     payload_json = json.dumps(model.data)
     hash_value = compute_pattern_hash(model.format, model.data, repeat=repeat_value, ik=ik_value)
 

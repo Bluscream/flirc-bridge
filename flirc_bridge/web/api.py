@@ -214,7 +214,7 @@ def create_api_router(
                     device = action.device if action else None
                     pattern_data = _load_pattern_data(pattern.data)
                     repeat_value = payload.repeat if payload.repeat is not None else pattern.repeat or 1
-                    ik_value = payload.ik if payload.ik is not None else pattern.ik or 23000
+                    ik_value = payload.ik if payload.ik is not None else pattern.ik or 23
                     response = transmit_pattern(
                         pattern.format,
                         pattern_data,
@@ -244,7 +244,7 @@ def create_api_router(
                 fmt = payload.format or "raw"
                 data_values = payload.data
                 repeat_value = payload.repeat or 1
-                ik_value = payload.ik or 23000
+                ik_value = payload.ik or 23
                 response = transmit_pattern(
                     fmt,
                     data_values,
@@ -632,8 +632,9 @@ def create_api_router(
             detail="Unsupported parameter combination for deletion",
         )
 
-    @router.post(
+    @router.api_route(
         "/api/mqtt/publish",
+        methods=["GET", "POST"],
         response_model=dict,
         summary="Clear and republish MQTT discovery topics",
     )
@@ -806,7 +807,7 @@ def create_api_router(
         if should_save:
             device_name = (request.device or "").strip() or None
             data_string = json.dumps(data)
-            data_hash = compute_pattern_hash(request.format, data, repeat=1, ik=23000)
+            data_hash = compute_pattern_hash(request.format, data, repeat=1, ik=23)
             action_name = (request.action or "").strip() or None
             with get_session() as session:
                 existing = (
@@ -824,7 +825,7 @@ def create_api_router(
                     record = PatternRecord(
                         device=device_name,
                         action=action_name,
-                        patterns=[{"format": request.format, "data": data, "repeat": 1, "ik": 23000}],
+                        patterns=[{"format": request.format, "data": data, "repeat": 1, "ik": 23}],
                     )
                     pattern_record_to_db(session, record, mqtt=state["mqtt"])
 

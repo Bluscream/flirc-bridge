@@ -176,7 +176,7 @@ class MQTTManager:
                 "id": primary.id,
                 "format": primary.format,
                 "repeat": primary.repeat or 1,
-                "ik": primary.ik or 23000,
+                "ik": primary.ik or 23,
                 "hash": primary.hash,
                 "updated_at": (primary.updated_at or primary.created_at or datetime.utcnow()).isoformat(),
             },
@@ -185,7 +185,7 @@ class MQTTManager:
                     "id": pattern.id,
                     "format": pattern.format,
                     "repeat": pattern.repeat or 1,
-                    "ik": pattern.ik or 23000,
+                    "ik": pattern.ik or 23,
                     "hash": pattern.hash,
                 }
                 for pattern in patterns
@@ -197,14 +197,27 @@ class MQTTManager:
             retain=self.settings.mqtt_retain,
         )
 
+        device_name = device.name
+        action_name = action.name
+        pattern_payloads = [
+            {
+                "id": pattern.id,
+                "format": pattern.format,
+                "data": pattern.data,
+                "repeat": pattern.repeat or 1,
+                "ik": pattern.ik or 23,
+            }
+            for pattern in patterns
+        ]
+
         def handler() -> None:
-            for pattern in patterns:
+            for payload in pattern_payloads:
                 try:
-                    payload_values = json.loads(pattern.data or "[]")
-                    repeat_value = pattern.repeat or 1
-                    ik_value = pattern.ik or 23000
+                    payload_values = json.loads(payload["data"] or "[]")
+                    repeat_value = payload["repeat"] or 1
+                    ik_value = payload["ik"] or 23
                     send_ir_pattern(
-                        pattern.format,
+                        payload["format"],
                         payload_values,
                         ik=ik_value,
                         repeat=repeat_value,
@@ -212,18 +225,18 @@ class MQTTManager:
                     )
                     logger.info(
                         "Sent pattern %s/%s (%s, id=%s)",
-                        device.name,
-                        action.name,
-                        pattern.format,
-                        pattern.id,
+                        device_name,
+                        action_name,
+                        payload["format"],
+                        payload["id"],
                     )
                 except (ToolError, json.JSONDecodeError) as exc:
                     logger.error(
                         "Failed to send pattern %s/%s (%s, id=%s): %s",
-                        device.name,
-                        action.name,
-                        pattern.format,
-                        pattern.id,
+                        device_name,
+                        action_name,
+                        payload["format"],
+                        payload["id"],
                         exc,
                     )
 
@@ -253,7 +266,7 @@ class MQTTManager:
             self._pattern_lookup.pop(command_topic, None)
             self._published_object_ids.discard(object_id)
 
-    def unpublish_all(self) -> None:
+    def unpublish_all(self) -> int:
         """Remove retained discovery topics for all published actions."""
         with self._lock:
             object_ids = list(self._published_object_ids)
@@ -261,7 +274,7 @@ class MQTTManager:
             self._published_object_ids.clear()
 
         if not object_ids:
-            return
+            return 0
 
         for object_id in object_ids:
             config_topic = self._config_topic_for_object_id(object_id)
@@ -271,6 +284,7 @@ class MQTTManager:
                 self.client.publish(attributes_topic, "", retain=True)
             except Exception as exc:  # pragma: no cover - defensive
                 logger.warning("Failed to unpublish discovery topic %s: %s", config_topic, exc)
+        return len(object_ids)
 
     def publish_all(self, devices: List[Dict[str, Any]]) -> None:
         for device_payload in devices:
@@ -292,7 +306,7 @@ class MQTTManager:
                         action=dummy_action,
                         hash=pattern_payload.get("hash"),
                         repeat=pattern_payload.get("repeat") or 1,
-                        ik=pattern_payload.get("ik") or 23000,
+                        ik=pattern_payload.get("ik") or 23,
                     )
                     dummy_action.patterns.append(dummy_pattern)
                 self.refresh_action(dummy_device, dummy_action)

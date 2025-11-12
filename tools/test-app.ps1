@@ -252,7 +252,7 @@ try {
                 format = "raw"
                 data   = $initialPatternData
                 repeat = 1
-                ik     = 23000
+                ik     = 23
             }
         )
     }
@@ -281,7 +281,7 @@ try {
         format = "csv"
         data   = @("4472", "552", "1664", "552")
         repeat = 1
-        ik     = 23000
+        ik     = 23
         save   = $true
     }
     $customSendResponse = Invoke-AppRequest -Method Post -Path "/api/send" -Body $customPayload
@@ -307,7 +307,7 @@ try {
                 format = "raw"
                 data   = $updatedPatternData
                 repeat = 2
-                ik     = 23000
+                ik     = 23
             }
         )
     }
@@ -354,7 +354,7 @@ try {
             format = "raw"
             data   = @("+9000", "-4500", "600")
             repeat = 1
-            ik     = 23000
+            ik     = 23
         }
         $sendTopic = "{0}/send" -f $baseTopic
         $payloadBytes = [System.Text.Encoding]::UTF8.GetBytes((ConvertTo-JsonString $mqttPayload))

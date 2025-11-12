@@ -1,8 +1,8 @@
 # Import patterns.json into flirc-bridge service
 param(
     [string]$PatternsFile,
-    [string]$ApiUrl = "http://127.0.0.1:8000/api/ingest",
-    [string]$VerifyUrl = "http://127.0.0.1:8000/api/pattern",
+    [string]$ApiUrl = "http://192.168.2.47:8000/api/ingest",
+    [string]$VerifyUrl = "http://192.168.2.47:8000/api/pattern",
     [string]$Token
 )
 

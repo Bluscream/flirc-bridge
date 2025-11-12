@@ -102,7 +102,7 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
             fmt = pattern.format
             pattern_hash = pattern.hash
             repeat_value = pattern.repeat or 1
-            ik_value = pattern.ik or 23000
+            ik_value = pattern.ik or 23
         logger.info(
             "Loaded stored pattern device=%s action=%s format=%s hash=%s repeat=%s ik=%s",
             device,
@@ -132,7 +132,7 @@ def create_app(settings_override: Optional[Settings] = None, runtime: Optional[B
     ) -> Dict[str, Any]:
         data_repr = data if data is None else json.dumps(data)
         effective_repeat = 1 if repeat is None or repeat < 1 else repeat
-        effective_ik = 23000 if ik is None or ik <= 0 else ik
+        effective_ik = 23 if ik is None or ik <= 0 else ik
         if device and action:
             logger.info(
                 "[%s] Dispatching stored pattern device=%s action=%s format=%s ik=%s repeat=%s data=%s",

@@ -185,7 +185,7 @@ async function submitPattern(event) {
     format: formatValue,
     data: normalized.data,
     repeat: repeatValue || 1,
-    ik: ikValue || 23000,
+    ik: ikValue || 23,
   };
 
   const payload = {
@@ -326,7 +326,7 @@ function editPattern(patternId) {
     patternRepeatInput.value = pattern.repeat || 1;
   }
   if (patternIkInput) {
-    patternIkInput.value = pattern.ik || 23000;
+    patternIkInput.value = pattern.ik || 23;
   }
   if (patternDataInput) {
     patternDataInput.value = patternDataToString(pattern.format, pattern.data);
@@ -591,7 +591,7 @@ function scrollToAddPattern() {
     patternRepeatInput.value = "1";
   }
   if (patternIkInput) {
-    patternIkInput.value = "23000";
+    patternIkInput.value = "23";
   }
   if (patternDataInput) {
     patternDataInput.value = "";
@@ -696,7 +696,7 @@ async function sendCustomPattern(event) {
       customRepeatInput.value = customRepeatInput.value || "1";
     }
     if (customIkInput) {
-      customIkInput.value = customIkInput.value || "23000";
+      customIkInput.value = customIkInput.value || "23";
     }
     customPatternInput.value = "";
     customPatternInput.focus();

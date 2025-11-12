@@ -15,7 +15,7 @@ class PatternModel(BaseModel):
         description="Pattern payload as list of strings",
     )
     repeat: int = Field(1, ge=1, description="Repeat count for the pattern")
-    ik: int = Field(23000, ge=1, description="Inter-key delay")
+    ik: int = Field(23, ge=1, description="Inter-key delay")
     hash: Optional[str] = Field(None, description="MD5 hash of format+data+repeat+ik")
     created_at: Optional[str] = Field(None, description="ISO timestamp when pattern was created")
     updated_at: Optional[str] = Field(None, description="ISO timestamp when pattern was last updated")
@@ -48,7 +48,7 @@ class PatternModel(BaseModel):
     @field_validator("ik", mode="before")
     def _normalize_ik(cls, value: Any) -> int:
         if value is None:
-            return 23000
+            return 23
         try:
             ik_value = int(value)
         except (TypeError, ValueError) as exc:

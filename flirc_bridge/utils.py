@@ -128,7 +128,7 @@ def compute_pattern_hash(
         "format": (fmt or "").lower(),
         "data": [str(item) for item in (data or [])],
         "repeat": 1 if repeat is None or repeat < 1 else int(repeat),
-        "ik": 23000 if ik is None or ik <= 0 else int(ik),
+        "ik": 23 if ik is None or ik <= 0 else int(ik),
     }
     blob = json.dumps(normalized, separators=(",", ":"), sort_keys=True)
     return hashlib.md5(blob.encode("utf-8")).hexdigest()

@@ -28,7 +28,7 @@ This project recreates the functionality of the `breeily/flirc_bridge` container
   - `POST /api/receive` – capture a pattern using `irtools listen` (optionally save it).
 - **MQTT integration** – publishes Home Assistant discovery buttons for every action and, when pressed, sends all patterns assigned to that action (in order). Also listens for custom payloads on:
   - `${MQTT_BASE_TOPIC}/commands/...` – triggers stored actions.
-  - `${MQTT_BASE_TOPIC}/send` – accepts custom payloads (`{"format": "...", "data": [...], "repeat": 1, "ik": 23000}`).
+- `${MQTT_BASE_TOPIC}/send` – accepts custom payloads (`{"format": "...", "data": [...], "repeat": 1, "ik": 23}`).
 
 ## Data model
 
@@ -216,7 +216,7 @@ curl -X POST http://localhost:8000/api/pattern \
         "format": "raw",
         "data": ["+9094 -4399 ..."],
         "repeat": 1,
-        "ik": 23000
+        "ik": 23
       }
     ]
   }'
@@ -247,7 +247,7 @@ curl -X POST http://localhost:8000/api/send \
     "format": "raw",
     "data": ["+9094 -4399 ..."],
     "repeat": 1,
-    "ik": 23000,
+    "ik": 23,
     "save": true,
     "device_name": "Compact Space Heater",
     "action_name": "Toggle"
@@ -293,7 +293,7 @@ Sample response (truncated):
               "id": "8df1adac-1aa5-4b3d-9f44-1f466c0b1ead",
               "format": "raw",
               "repeat": 1,
-              "ik": 23000,
+              "ik": 23,
               "data": ["+9094", "-4399", "..."]
             }
           ]
@@ -312,7 +312,7 @@ Publish to `flirc_bridge/send`:
 {
   "format": "raw",
   "data": ["+9094 -4399 ..."],
-  "ik": 23000,
+  "ik": 23,
   "repeat": 1
 }
 ```
